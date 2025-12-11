@@ -1,17 +1,15 @@
 const admin = require('firebase-admin');
-const retry = require('retry');
-const operation = retry.operation();
-const {decryptedData} = require('../utils/decryptUtils')
+// const retry = require('retry'); // ❌ Removed
+// const operation = retry.operation(); // ❌ Removed
+const { decryptedData } = require('../utils/decryptUtils');
 
+let initializedApp = null;
 
 const serviceAccount = {
-  type: process.env.FIREBASE_TYPE, // इसे env var से पढ़ें
+  type: process.env.FIREBASE_TYPE,
   project_id: process.env.FIREBASE_PROJECT_ID,
   private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-  // 🚨 महत्वपूर्ण: private_key को Git से बचने के लिए Env Var से पढ़ें
-  private_key: process.env.FIREBASE_PRIVATE_KEY 
-               ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') // \n को असली लाइन ब्रेक से बदलें
-               : undefined, 
+  private_key: process.env.FIREBASE_PRIVATE_KEY,
   client_email: process.env.FIREBASE_CLIENT_EMAIL,
   client_id: process.env.FIREBASE_CLIENT_ID,
   auth_uri: process.env.FIREBASE_AUTH_URI,
@@ -20,74 +18,75 @@ const serviceAccount = {
   client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
   universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
 };
-// Initialize Firebase Admin SDK
-operation.attempt(function(currentAttempt) {
-  try {
-   
-      const decryptedServiceAccount = {};
-  
-      // Loop through the encrypted service account and decrypt each field
-      for (const key in serviceAccount) {
-        if (serviceAccount.hasOwnProperty(key)) {
-          const encryptedValue = serviceAccount[key];
-          let decryptedValue;
 
-            if (encryptedValue === process.env.SECRET_KEY) {
+// =================================================================
+// 🚀 Firebase Initialization Logic
+// =================================================================
 
-              // Case 1 → Exact match → No decrypt
-              decryptedValue = encryptedValue;
+try {
+  const decryptedServiceAccount = {};
 
-            } else if (typeof encryptedValue === "string" && encryptedValue.includes("-----BEGIN PRIVATE KEY-----")) {
+  // Loop through the service account fields and decrypt each field
+  for (const key in serviceAccount) {
+    if (serviceAccount.hasOwnProperty(key)) {
+      const encryptedValue = serviceAccount[key];
+      let decryptedValue;
 
-              // Case 2 → Private Key → No decrypt
-              decryptedValue = encryptedValue;
+      if (!encryptedValue) {
+         // यदि Env Var missing है (और डिक्रिप्शन की आवश्यकता नहीं है)
+         decryptedValue = encryptedValue;
 
-            } else {
+      } else if (encryptedValue === process.env.SECRET_KEY) {
+        // Case 1 → Exact match → No decrypt
+        decryptedValue = encryptedValue;
 
-              // Case 3 → Normal encryption → decrypt
-              decryptedValue = decryptedData(encryptedValue);
+      } else if (typeof encryptedValue === "string" && encryptedValue.includes("-----BEGIN PRIVATE KEY-----")) {
+        // Case 2 → Private Key → No decrypt (यदि आपने इसे एन्क्रिप्ट नहीं किया है)
+        // यदि आपने इसे एन्क्रिप्ट किया है, तो इस क्लॉज़ को हटाएँ और इसे डिक्रिप्ट होने दें
+        decryptedValue = encryptedValue;
 
-            }
-
-          
-          // Store the decrypted value in the decryptedServiceAccount object
-          decryptedServiceAccount[key] = decryptedValue;
-        }
+      } else {
+        // Case 3 → Normal encryption → decrypt
+        // यह यहाँ विफलता का मुख्य बिंदु है (Malformed UTF-8 data)
+        decryptedValue = decryptedData(encryptedValue);
       }
-  
-admin.initializeApp({
-  credential: admin.credential.cert(decryptedServiceAccount),
-  databaseURL: process.env.FIREBASE_DATABASE_URL,  // Replace with your Firebase Realtime Database URL
-});
-console.log('Firebase Admin SDK initialized successfully.');
-    
-} catch (err) {
-if (operation.retry(err)) {
-  return;
-}
-   // If retries are exhausted, log the error
-   console.error('Error initializing Firebase:', err);
+
+      // Store the decrypted value
+      decryptedServiceAccount[key] = decryptedValue;
+    }
   }
-});
-// Export Firebase services you need
-const db = admin.database();  // Firebase Realtime Database instance
-const auth = admin.auth();     // Firebase Authentication instance
 
-// Function to set custom user claims (role assignment)
-// const setUserRole = async (uid, role,subrole) => {
-//   try {
-//     // Set custom claims (e.g., role: admin)
-//     await admin.auth().setCustomUserClaims(uid, { role },{subrole});
-//     console.log(`Custom claims set for user UID: ${uid} with role: ${role} with ${subrole}`);
-//   } catch (error) {
-//     console.error('Error setting custom claims:', error);
-//   }
-// };
+  // सुनिश्चित करें कि ऐप पहले से ही initialized न हो
+  if (!admin.apps.length) {
+    initializedApp = admin.initializeApp({
+      credential: admin.credential.cert(decryptedServiceAccount),
+      databaseURL: process.env.FIREBASE_DATABASE_URL,
+    });
+    console.log('Firebase Admin SDK initialized successfully.');
+  } else {
+    // यदि यह पहले से initialized है (जैसे nodemon restarts पर)
+    initializedApp = admin.app(); 
+  }
 
-const setUserRole = async (uid, role, subrole,referredBy) => {
+} catch (err) {
+  console.error('FATAL ERROR: Firebase Initialization Failed due to Decryption/Missing Key.', err);
+  // Initialization विफल होने पर, हम किसी भी firebase export को रोकने के लिए throw करते हैं।
+  throw err; 
+}
+
+
+// =================================================================
+// Export Firebase services (केवल Initialization सफल होने पर)
+// =================================================================
+
+// यह db और auth तभी प्राप्त करेगा जब initializedApp सफलतापूर्वक सेट हो गया हो।
+const db = initializedApp.database();
+const auth = initializedApp.auth();
+
+// Function to set custom user claims
+const setUserRole = async (uid, role, subrole, referredBy) => {
   try {
-    // Set custom claims (role, subrole) for the user
-    await admin.auth().setCustomUserClaims(uid, { role, subrole ,referredBy});
+    await auth.setCustomUserClaims(uid, { role, subrole, referredBy });
     console.log(`Role ${role} and subrole ${subrole} set for user with UID: ${uid}`);
   } catch (error) {
     console.error("Error setting custom claims:", error);
@@ -95,13 +94,12 @@ const setUserRole = async (uid, role, subrole,referredBy) => {
 };
 
 
-
 const getFlatmateUserByEmail = async (email) => {
   if (!email) return null;
 
   const searchEmail = email.trim().toLowerCase();
   const usersRef = db.ref('/flatmate/users');
-  const snapshot = await usersRef.once('value'); // get all users
+  const snapshot = await usersRef.once('value'); 
 
   if (!snapshot.exists()) return null;
 
@@ -117,4 +115,4 @@ const getFlatmateUserByEmail = async (email) => {
 };
 
 
-module.exports = { db, auth, setUserRole,getFlatmateUserByEmail };
+module.exports = { db, auth, setUserRole, getFlatmateUserByEmail };
