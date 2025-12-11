@@ -1,5 +1,4 @@
 const admin = require('firebase-admin');
-const serviceAccount = require('../serviceAccountKey.json'); // Your Firebase service account JSON
 const retry = require('retry');
 const operation = retry.operation();
 const {decryptedData} = require('../utils/decryptUtils')
