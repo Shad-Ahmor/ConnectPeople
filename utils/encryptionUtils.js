@@ -5,7 +5,7 @@ const path = require('path');
 const CryptoJS = require('crypto-js');
 
 // Your secret key for AES encryption
-const secretKey = '1QUa97x7+RK30ydey7OINl+oFNPZASMvfn40bmRB/Zw='
+const secretKey = process.env.ENCRYPTION_SECRET_KEY
 
 // Path to your original service account JSON
 const inputPath = path.join(__dirname, '../FILENAM.json');

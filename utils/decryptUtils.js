@@ -1,6 +1,6 @@
 const CAESAR_SHIFT = 13;  // or define wherever needed
 const CryptoJS = require('crypto-js');
-const secretKey = '1QUa97x7+RK30ydey7OINl+oFNPZASMvfn40bmRB/Zw='
+const secretKey = process.env.ENCRYPTION_SECRET_KEY
 // =====================
 // 🔐 ENCRYPT FUNCTION
 // =====================
