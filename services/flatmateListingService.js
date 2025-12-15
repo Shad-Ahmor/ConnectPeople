@@ -8,6 +8,7 @@ exports.createNewListing = async (userId, listingData) => {
     if (!userId) throw new Error("Authentication error: User ID missing.");
 
     // Validate & format listing
+    // This relies on the FlatmateListingModel to correctly map client fields (rent, image_links, etc.)
     const listingModel = new FlatmateListingModel(listingData);
     const finalListing = listingModel.toRTDBData(userId);
 
@@ -27,9 +28,9 @@ exports.createNewListing = async (userId, listingData) => {
 // NEW FETCH SERVICE FUNCTIONS
 // -----------------------------------------------------------------
 // API 1: Fetch all listings with limited details
-exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept 'filters' object instead of 'listingTypeFilter' string
+exports.getAllListingsForFrontend = async (filters) => { 
     
-    // 🌟 MODIFICATION 1: Destructure all filters from the input object
+    // MODIFICATION 1: Destructure all filters from the input object
     const { 
         listingType, 
         city, 
@@ -49,12 +50,16 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
     let allListings = [];
 
     // --- Filter Normalization (Normalize values for case-insensitive matching) ---
-    // 🌟 FIX 2: Use listingType from the destructured object.
     const normalizedFilterType = listingType ? listingType.toLowerCase().trim() : null;
     const normalizedCity = city ? city.toLowerCase().trim() : null;
-    const normalizedPropertyStatus = propertyStatus ? propertyStatus.toLowerCase().trim() : null;
+    const normalizedPropertyStatus = propertyStatus ? propertyStatus.toLowerCase().trim() : null; 
     const normalizedHouseType = houseType ? houseType.toLowerCase().trim() : null;
     const normalizedSearchQuery = searchQuery ? searchQuery.toLowerCase().trim() : null;
+    
+    // Normalize BHK types for easier matching against listing's `bhkOrRooms` format
+    const normalizedBhkTypes = bhkType && bhkType.length > 0 
+        ? bhkType.map(bhk => bhk.toLowerCase().trim())
+        : null;
 
     // INEFFICIENT: Iterating through all users to find all listings
     for (const userId in usersData) {
@@ -72,20 +77,28 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
                 continue; // Skip the listing if it doesn't match the primary type
             }
 
-            // --- START ADDITIONAL FILTERING LOGIC ---
+            // --- START ADDITIONAL FILTERING LOGIC (Using corrected RTDB field names) ---
 
             // 2. Filter by City
             if (passesFilters && normalizedCity) {
-                const listingCity = listingData.address?.city?.toLowerCase().trim();
+                // FIX: Use the new RTDB field name 'city'
+                const listingCity = listingData.city ? listingData.city.toLowerCase().trim() : '';
                 if (listingCity !== normalizedCity) {
                     passesFilters = false;
                 }
             }
 
-            // 3. Filter by BHK/Room Type (Checking if any selected BHK type matches the listing's BHK type)
-            if (passesFilters && bhkType && bhkType.length > 0) {
-                const listingBhk = listingData.bhk_or_rooms ? listingData.bhk_or_rooms.toLowerCase().trim() : null;
-                const normalizedBhkTypes = bhkType.map(bhk => bhk.toLowerCase().trim());
+            // 3. Filter by BHK/Room Type
+            if (passesFilters && normalizedBhkTypes) {
+                // To filter accurately, we need the BHK/Rooms string which is calculated in the model's static helper.
+                const tempListingData = {
+                    bedrooms: listingData.bedrooms,
+                    propertyType: listingData.propertyType
+                };
+                
+                // Use the static helper from the model to calculate the BHK string
+                const tempBhkOrRooms = FlatmateListingModel.toLimitedFrontendData(tempListingData, listingId).bhkOrRooms;
+                const listingBhk = tempBhkOrRooms ? tempBhkOrRooms.toLowerCase().trim() : null;
                 
                 if (!listingBhk || !normalizedBhkTypes.includes(listingBhk)) {
                     passesFilters = false;
@@ -94,7 +107,8 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
 
             // 4. Filter by Property Status
             if (passesFilters && normalizedPropertyStatus) {
-                const listingStatus = listingData.property_status ? listingData.property_status.toLowerCase().trim() : null;
+                // FIX: Use the RTDB field name 'status'
+                const listingStatus = listingData.status ? listingData.status.toLowerCase().trim() : null;
                 if (listingStatus !== normalizedPropertyStatus) {
                     passesFilters = false;
                 }
@@ -102,19 +116,21 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
             
             // 5. Filter by House Type
             if (passesFilters && normalizedHouseType) {
-                const listingHouseType = listingData.property_type ? listingData.property_type.toLowerCase().trim() : null;
+                // FIX: Use the RTDB field name 'propertyType'
+                const listingHouseType = listingData.propertyType ? listingData.propertyType.toLowerCase().trim() : null;
                 if (listingHouseType !== normalizedHouseType) {
                     passesFilters = false;
                 }
             }
 
-            // 6. Filter by Search Query (Checking title, locality, or landmark for the search term)
+            // 6. Filter by Search Query (Checking all relevant location/description fields)
             if (passesFilters && normalizedSearchQuery) {
                 const searchFields = [
-                    listingData.title,
-                    listingData.address?.locality,
-                    listingData.address?.landmark,
-                    listingData.address?.city // Include city in search
+                    listingData.location, // Consolidated location string
+                    listingData.city,
+                    listingData.area,
+                    listingData.description,
+                    listingData.nearby_location
                 ].filter(Boolean).join(' ').toLowerCase(); // Join all fields into one string
 
                 if (!searchFields.includes(normalizedSearchQuery)) {
@@ -127,7 +143,6 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
                 // ... Geospatial Logic Placeholder ...
             }
             
-            // If the listing fails any filter check, continue to the next listing
             if (!passesFilters) {
                 continue;
             }
@@ -139,8 +154,6 @@ exports.getAllListingsForFrontend = async (filters) => { // 🌟 FIX 1: Accept '
     }
     return allListings;
 };
-
-// API 2: Fetch a single listing by ID with full details
 exports.getSingleListing = async (listingId) => {
     // ⚠️ दक्षता चेतावनी:
     // यह फ़ंक्शन अभी भी 'flatmate/users' के नीचे सभी उपयोगकर्ताओं के डेटा को खींचता है
@@ -178,7 +191,6 @@ exports.getSingleListing = async (listingId) => {
         throw new Error("Failed to perform database lookup for single listing.");
     }
 };
-
 // API 3: Fetch all listings for a specific user
 exports.getUserListings = async (userId) => {
     const userPropertiesRef = db.ref(`/flatmate/users/${userId}/property`);
@@ -211,32 +223,60 @@ exports.updateUserListing = async (userId, listingId, updates) => {
         return false;
     }
 
-    // Only allow specific fields to be updated
-    const allowedUpdates = {};
+    // FIX: Expanded updatableFields to include all new fields from the model's RTDB output
     const updatableFields = [
-        'price', 'deposit', 'description', 'final_available_date', 
-        'current_occupants', 'furnishing_status', 'selectedAmenities', 
-        'is_no_brokerage', 'max_negotiable_price', 'negotiation_margin_percent',
+        // Core Details
+        'price', 'deposit', 'description', 'location', 
+        
+        // Property Details (Step 2 & 3)
+        'bedrooms', 'bathrooms', 'carpetArea',
+        'city', 'area', 'pincode', 'flat_number', 'state_name', 'districtName', 
+        'building_age', 'ownership_type', 'maintenance_charges', 'facing', 'parking', 'gated_security', 
+        'flooring_type', 'nearby_location',
+
+        // Availability & Furnishing (Step 4)
+        'final_available_date', 
+        'current_occupants', 
+        'furnishing_status', 
+        'selectedAmenities', 
+        
+        // Negotiation & Requirements (Step 5)
+        'is_no_brokerage', 
+        'max_negotiable_price', 
+        'negotiation_margin_percent', 
         'preferred_gender', 'preferred_occupation', 'preferred_work_location', 
-        'imageLinks', 'location', 'bedrooms', 'bathrooms', 'carpetArea'
+        
+        // Images (Step 6)
+        'imageLinks', 
+
+        // Proximity (Step 7)
+        'transit_points', 'essential_points', 'utility_points',
     ];
 
+    const allowedUpdates = {};
+
+    // 1. Filter the incoming 'updates' object to only include allowed RTDB fields
     for (const key in updates) {
         if (updatableFields.includes(key)) {
             allowedUpdates[key] = updates[key];
         }
     }
+    
+    // 2. Perform necessary type casting/data cleaning for RTDB (Basic check)
+    if (allowedUpdates.price !== undefined) allowedUpdates.price = Number(allowedUpdates.price) || 0;
+    if (allowedUpdates.deposit !== undefined) allowedUpdates.deposit = Number(allowedUpdates.deposit) || 0;
+    // NOTE: More robust type-casting and validation should ideally happen here or in a dedicated validation layer.
 
     if (Object.keys(allowedUpdates).length === 0) {
         throw new Error("Invalid update data: No updatable fields provided.");
     }
     
-    // Update the timestamp
+    // 3. Update the timestamp and perform the update
     allowedUpdates.updatedAt = new Date().toISOString(); 
     
     await listingRef.update(allowedUpdates);
 
-    // Fetch the updated data to return to the frontend
+    // 4. Fetch the updated data to return to the frontend
     const updatedSnapshot = await listingRef.once('value');
     const updatedListingData = updatedSnapshot.val();
 

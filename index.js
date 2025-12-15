@@ -9,6 +9,7 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const app = express();
+app.set('trust proxy', 1);
 const port = process.env.PORT || 5000;
 const flatmateAuthRoutes = require("./routes/flatmateAuthRoutes.js");
 
