@@ -159,7 +159,7 @@ exports.flatmateCompleteProfile = async (req, res) => {
 const COOKIE_NAME = 'session';
 const SESSION_EXPIRES = 60 * 60 * 24 * 7 * 1000; // 7 days
 exports.flatmateLogin = async (req, res) => {
-  const { email, password, latitude, longitude } = req.body;
+  const { email, password, latitude, longitude ,captchaToken} = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required.' });
@@ -178,6 +178,9 @@ exports.flatmateLogin = async (req, res) => {
 
     const idToken = signInResponse.data.idToken;
     const uid = signInResponse.data.localId;
+    const userSnapshot = await db.ref(`flatmate/users/${uid}`).once('value');
+    const userData = userSnapshot.val();
+    const userRole = userData?.role || 'Tenant';
 
     // Create session cookie
     const sessionCookie = await firebaseAdmin.auth().createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
@@ -199,7 +202,12 @@ exports.flatmateLogin = async (req, res) => {
     });
 
     res.status(200).json({
-      user: { uid, email, name: signInResponse.data.displayName || '' }
+      user: { 
+          uid, 
+          email, 
+          name: signInResponse.data.displayName || '',
+          role: userRole,
+      }
     });
 
   } catch (error) {
@@ -214,6 +222,7 @@ exports.flatmateLogin = async (req, res) => {
 
 // const COOKIE_NAME = 'session';
 // const SESSION_EXPIRES = 60 * 60 * 24 * 7 * 1000; // 7 days
+//isko jab comment out karna to reponse me role: userRole, jarur bhejna
 // exports.flatmateLogin = async (req, res) => {
 //   // 1. req.body से 'captchaToken' निकालें
 //   const { email, password, latitude, longitude, captchaToken } = req.body;
@@ -300,7 +309,7 @@ exports.flatmateLogin = async (req, res) => {
 //     });
 
 //     res.status(200).json({
-//       user: { uid, email, name: signInResponse.data.displayName || '' }
+//       user: { uid, email, name: signInResponse.data.displayName || '' ,role: userRole,}
 //     });
 
 //   } catch (error) {
@@ -373,6 +382,12 @@ exports.flatmateLogout = async (req, res) => {
 
     } catch (error) {
         console.error("Logout error:", error);
+        res.clearCookie("session", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            path: "/",
+        });
         return res.status(500).json({ message: "Server error during logout.", error: error.message });
     }
 };
