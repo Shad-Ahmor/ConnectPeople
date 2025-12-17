@@ -13,7 +13,7 @@ requiredVars.forEach((key) => {
 
 // ✅ Create Gmail transporter using App Password
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  service: "smtp.gmail.com",
   port: 465,
   secure: true,
   auth: {
