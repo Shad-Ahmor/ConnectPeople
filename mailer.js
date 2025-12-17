@@ -1,41 +1,31 @@
-// utils/mailer.js
 const nodemailer = require("nodemailer");
 
-const requiredVars = ["SUPPORT_EMAIL", "SMTP_PASS"];
-
-requiredVars.forEach((key) => {
-  if (!process.env[key]) {
-    console.error(
-      `❌ FATAL: Mailer cannot start. Environment variable ${key} is missing.`
-    );
-  }
-});
-
-// ✅ Create Gmail transporter using App Password
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false, // ✅ 587 के लिए हमेशा false रखें
   auth: {
-    user: process.env.SUPPORT_EMAIL, // noreply email
-    pass: process.env.SMTP_PASS,     // Gmail App Password
+    user: process.env.SUPPORT_EMAIL,
+    pass: process.env.SMTP_PASS,
   },
-  connectionTimeout: 15000, 
-  greetingTimeout: 10000,
+  tls: {
+    // ✅ यह Render पर 'Connection Refused' एरर से बचाने में मदद करता है
+    rejectUnauthorized: false,
+    minVersion: "TLSv1.2"
+  },
+  connectionTimeout: 20000, 
+  greetingTimeout: 15000,
 });
 
-// ✅ Verify transporter once at startup (optional but recommended)
+// वेरिफिकेशन चेक
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ Mailer Transport Error:", error.message);
+    console.error("❌ 587 Port also failed:", error.message);
   } else {
-    console.log("✅ Mailer is ready to send emails");
+    console.log("✅ Connection Success on Port 587!");
   }
 });
 
-/**
- * ✅ Send Email Utility
- */
 const sendEmail = async ({ to, subject, html }) => {
   try {
     const info = await transporter.sendMail({
@@ -44,18 +34,10 @@ const sendEmail = async ({ to, subject, html }) => {
       subject,
       html,
     });
-
-    console.log("📧 Email Sent Successfully:", info.messageId);
+    console.log("📧 Sent Successfully:", info.messageId);
     return true;
   } catch (err) {
-    console.error("❌ Email Send Failed:", err.message);
-
-    if (err.response) {
-      console.error("  → SMTP Response:", err.response);
-      console.error("  → Response Code:", err.responseCode);
-      console.error("  → SMTP Command:", err.command);
-    }
-
+    console.error("❌ Send Failed on 587:", err.message);
     return false;
   }
 };
