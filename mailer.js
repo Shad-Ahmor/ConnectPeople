@@ -1,11 +1,6 @@
 // utils/mailer.js
 const nodemailer = require("nodemailer");
 
-/**
- * ✅ REQUIRED ENV VARIABLES
- * SUPPORT_EMAIL = findyourflatmates.noreply@gmail.com
- * SMTP_PASS    = Gmail App Password (16 chars)
- */
 const requiredVars = ["SUPPORT_EMAIL", "SMTP_PASS"];
 
 requiredVars.forEach((key) => {
@@ -19,6 +14,8 @@ requiredVars.forEach((key) => {
 // ✅ Create Gmail transporter using App Password
 const transporter = nodemailer.createTransport({
   service: "gmail",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.SUPPORT_EMAIL, // noreply email
     pass: process.env.SMTP_PASS,     // Gmail App Password
