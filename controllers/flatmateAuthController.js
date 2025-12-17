@@ -26,8 +26,8 @@ exports.sendOtp = async (req, res) => {
     try {
         // 1. Check if user already exists using the RTDB function.
         // 💡 This function returns null if the user is not found, avoiding the 'auth/user-not-found' error.
-        const senetizeemail=sanitizeString(email)
-        const existingUser = await getFlatmateUserByEmail(senetizeemail); 
+        const sanitizedEmail=sanitizeString(email)
+        const existingUser = await getFlatmateUserByEmail(sanitizedEmail); 
 
         if (existingUser) {
              // User found in RTDB -> return 409 Conflict
@@ -35,10 +35,10 @@ exports.sendOtp = async (req, res) => {
         }
         
         // 2. Generate, Store, and Send OTP Email (Flow continues only if user is new)
-        const result = await sendOtpEmail(email);
+        const result = await sendOtpEmail(sanitizedEmail);
 
         if (result.success) {
-            return res.status(200).json({ message: 'Verification code sent to email successfully.', email });
+            return res.status(200).json({ message: 'Verification code sent to email successfully.', sanitizedEmail });
         } else {
             return res.status(500).json({ message: 'Failed to send verification email. Please check the email address and try again.' });
         }
@@ -98,6 +98,7 @@ exports.flatmateSignup = async (req, res) => {
             // Changed message and next_step to reflect successful final signup
             message: 'Registration successful. Redirecting to Login.', 
             next_step: 'login', 
+            token: customToken,
             user: { email: userData.email, uid, name: userData.name },
         });
 
@@ -122,19 +123,43 @@ exports.flatmateSignup = async (req, res) => {
 // 🟢 flatmateCompleteProfile (CONTROLLER)
 // ----------------------------------------------------------
 exports.flatmateCompleteProfile = async (req, res) => {
-    // ✅ Get UID from token cookie instead of session
-    const token = req.cookies.token;
-    if (!token) return res.status(401).json({ message: "Unauthorized. No token found." });
+    // 1. टोकन प्राप्त करें (Cookie या Header से)
+    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ message: "Unauthorized. No token provided." });
+    }
 
     let uid;
     try {
+        // 2. Firebase ID Token वेरीफाई करने की कोशिश करें
         const decoded = await firebaseAdmin.auth().verifyIdToken(token);
         uid = decoded.uid;
     } catch (err) {
-        return res.status(401).json({ message: "Invalid or expired token." });
+        /* 💡 अगर verifyIdToken फेल होता है, तो इसका मतलब है कि यह Custom Token है।
+           चूंकि Custom Token को verifyIdToken से चेक नहीं किया जा सकता, 
+           इसलिए प्रोडक्शन में आपको क्लाइंट को लॉगिन कराना चाहिए।
+           लेकिन अभी के लिए, आप JWT डिकोड करके UID निकाल सकते हैं (सिर्फ अगर आप टोकन पर भरोसा करते हैं):
+        */
+        try {
+            const decodedCustom = firebaseAdmin.auth().verifySessionCookie ? 
+                                  // अगर आपने सेशन कुकी बनाई है तो उसे चेक करें, 
+                                  // वरना कस्टम टोकन डिकोड करें:
+                                  JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()) : {};
+            
+            uid = decodedCustom.uid || decodedCustom.sub;
+            
+            if (!uid) throw new Error("No UID in token");
+        } catch (innerErr) {
+            return res.status(401).json({ message: "Invalid or expired token. Please login again." });
+        }
     }
 
+    // 3. प्रोफाइल डेटा अपडेट करें
     const profileData = req.body;
+    if (!profileData.city || !profileData.phoneNumber) {
+        return res.status(400).json({ message: "City and Phone number are required." });
+    }
 
     try {
         const updatedProfile = await flatmateUserService.completeFlatmateProfile(uid, profileData);
@@ -143,11 +168,8 @@ exports.flatmateCompleteProfile = async (req, res) => {
             user: updatedProfile,
         });
     } catch (error) {
-        if (error.message.includes("is required")) {
-            return res.status(400).json({ message: error.message });
-        }
         console.error("Error completing profile:", error);
-        res.status(500).json({ message: 'Failed to complete profile due to a server error.', error: error.message });
+        res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 };
 

@@ -1,53 +1,62 @@
 // utils/mailer.js
 const nodemailer = require("nodemailer");
 
-// 💡 NEW CHECK: Ensure environment variables are loaded
-const requiredAuthVars = ['SUPPORT_EMAIL', 'OAUTH_CLIENT_ID', 'OAUTH_CLIENT_SECRET', 'OAUTH_REFRESH_TOKEN'];
-requiredAuthVars.forEach(key => {
-    if (!process.env[key]) {
-        console.error(`❌ FATAL: Mailer cannot start. Environment variable ${key} is NOT loaded from .env.`);
-    }
+/**
+ * ✅ REQUIRED ENV VARIABLES
+ * SUPPORT_EMAIL = findyourflatmates.noreply@gmail.com
+ * SMTP_PASS    = Gmail App Password (16 chars)
+ */
+const requiredVars = ["SUPPORT_EMAIL", "SMTP_PASS"];
+
+requiredVars.forEach((key) => {
+  if (!process.env[key]) {
+    console.error(
+      `❌ FATAL: Mailer cannot start. Environment variable ${key} is missing.`
+    );
+  }
 });
 
-
+// ✅ Create Gmail transporter using App Password
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
+  service: "gmail",
   auth: {
-    type: "OAuth2",
-    user: process.env.SUPPORT_EMAIL,         // MUST MATCH MAIL FROM
-    clientId: process.env.OAUTH_CLIENT_ID,
-    clientSecret: process.env.OAUTH_CLIENT_SECRET,
-    refreshToken: process.env.OAUTH_REFRESH_TOKEN,
+    user: process.env.SUPPORT_EMAIL, // noreply email
+    pass: process.env.SMTP_PASS,     // Gmail App Password
   },
 });
 
+// ✅ Verify transporter once at startup (optional but recommended)
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ Mailer Transport Error:", error.message);
+  } else {
+    console.log("✅ Mailer is ready to send emails");
+  }
+});
 
+/**
+ * ✅ Send Email Utility
+ */
 const sendEmail = async ({ to, subject, html }) => {
   try {
     const info = await transporter.sendMail({
-      from: `"Find Your Flatmate" <${process.env.SUPPORT_EMAIL}>`,
+      from: `"FindYourFlatmates" <${process.env.SUPPORT_EMAIL}>`,
       to,
       subject,
       html,
     });
 
-    console.log("📧 Email Sent:", info.messageId);
+    console.log("📧 Email Sent Successfully:", info.messageId);
     return true;
-
   } catch (err) {
-    // Detailed Nodemailer Error Logging
-    console.error("❌ Email Send Error Message:", err.message);
-    
+    console.error("❌ Email Send Failed:", err.message);
+
     if (err.response) {
-        console.error("  -> Nodemailer Error Response:", err.response); 
-        console.error("  -> Nodemailer Response Code:", err.responseCode);
-        console.error("  -> Nodemailer Command:", err.command);
-    } else {
-        console.error("  -> Full Error Object (Fallback):", err);
+      console.error("  → SMTP Response:", err.response);
+      console.error("  → Response Code:", err.responseCode);
+      console.error("  → SMTP Command:", err.command);
     }
-    
+
     return false;
   }
 };

@@ -83,6 +83,7 @@ class FlatmateProfileModel {
             latitude: this.latitude,
             longitude: this.longitude,
             approved: this.approved,
+            signupStage: this.signupStage,
             lastProfileUpdate: this.lastProfileUpdate,
         };
     }

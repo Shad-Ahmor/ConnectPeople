@@ -25,6 +25,12 @@ const {
 const firebaseAuthMiddleware = require('../services/firebaseAuthMiddleware');
 const rateLimit = require("express-rate-limit"); //To stop brute-force or account-creation bots at Login/Signup/OTP endpoints 
 
+
+const {
+  trustSession,
+} = require('../controllers/trustSessionController');
+
+
 const authLimiter = rateLimit({
     windowMs: 5 * 60 * 1000, // 5 minutes
     max: 5, // 5 मिनट में प्रत्येक IP से अधिकतम 5 अनुरोध (requests)
@@ -34,6 +40,9 @@ const authLimiter = rateLimit({
 // Parse JSON and URL-encoded payloads
 router.use(express.urlencoded({ extended: true }));
 router.use(express.json());
+
+
+router.post('/trust-session', trustSession);
 
 // ------------------------
 // Public Auth Routes
