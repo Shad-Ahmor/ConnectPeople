@@ -1,43 +1,51 @@
-const nodemailer = require("nodemailer");
-
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // ✅ 587 के लिए हमेशा false रखें
-  auth: {
-    user: process.env.SUPPORT_EMAIL,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: {
-    // ✅ यह Render पर 'Connection Refused' एरर से बचाने में मदद करता है
-    rejectUnauthorized: false,
-    minVersion: "TLSv1.2"
-  },
-  connectionTimeout: 20000, 
-  greetingTimeout: 15000,
-});
-
-// वेरिफिकेशन चेक
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ 587 Port also failed:", error.message);
-  } else {
-    console.log("✅ Connection Success on Port 587!");
-  }
-});
+const { google } = require('googleapis');
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"FindYourFlatmates" <${process.env.SUPPORT_EMAIL}>`,
-      to,
-      subject,
-      html,
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GMAIL_CLIENT_ID,
+      process.env.GMAIL_CLIENT_SECRET,
+      "https://developers.google.com/oauthplayground"
+    );
+
+    oauth2Client.setCredentials({
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN,
     });
-    console.log("📧 Sent Successfully:", info.messageId);
+
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // 1. Email structure banana (MIME format)
+    // Dhyan de: From me wahi email ayegi jo SUPPORT_EMAIL hai
+    const str = [
+      `To: ${to}`,
+      `From: "FindYourFlatmates Support" <${process.env.SUPPORT_EMAIL}>`,
+      `Subject: ${subject}`,
+      'Content-type: text/html;charset=utf-8',
+      'MIME-Version: 1.0',
+      '',
+      html,
+    ].join('\n');
+
+    // 2. Base64 Encode karna (Gmail API ki requirement hai)
+    const encodedMail = Buffer.from(str)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    // 3. API Call se mail bhejna
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: encodedMail,
+      },
+    });
+
+    console.log("🚀 Success! Email sent via Gmail REST API:", res.data.id);
     return true;
-  } catch (err) {
-    console.error("❌ Send Failed on 587:", err.message);
+
+  } catch (error) {
+    console.error("❌ Gmail API Error:", error.response ? error.response.data : error.message);
     return false;
   }
 };
