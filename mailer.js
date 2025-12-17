@@ -20,6 +20,8 @@ const transporter = nodemailer.createTransport({
     user: process.env.SUPPORT_EMAIL, // noreply email
     pass: process.env.SMTP_PASS,     // Gmail App Password
   },
+  connectionTimeout: 15000, 
+  greetingTimeout: 10000,
 });
 
 // ✅ Verify transporter once at startup (optional but recommended)
