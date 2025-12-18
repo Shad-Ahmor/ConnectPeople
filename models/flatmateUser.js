@@ -16,7 +16,7 @@ class FlatmateSignupModel {
 
         this.primaryIntent = data.primaryIntent || null;
         this.secondaryIntent = data.secondaryIntent || null;
-
+        const validRoles = ['Tenant', 'Owner', 'Buyer', 'Seller'];
         // --- Default/Initial RTDB fields ---
         this.uid = null; // Will be set by Firebase Auth
         this.approved = false;
