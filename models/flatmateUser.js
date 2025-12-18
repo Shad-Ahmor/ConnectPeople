@@ -14,15 +14,20 @@ class FlatmateSignupModel {
         this.password = data.password;
         this.name = data.username;
 
+        this.primaryIntent = data.primaryIntent || null;
+        this.secondaryIntent = data.secondaryIntent || null;
+
         // --- Default/Initial RTDB fields ---
         this.uid = null; // Will be set by Firebase Auth
         this.approved = false;
         this.createdAt = new Date().toISOString();
-        this.role = 'Pending';
-        this.planName = 'Pending';
+        this.role = validRoles.includes(this.primaryIntent) 
+            ? this.primaryIntent 
+            : 'Tenant';
+        this.planName = `${this.primaryIntent}: ${this.secondaryIntent}`;
         this.city = null;
         this.phoneNumber = null;
-        this.signupStage = 1; 
+        this.signupStage =3; 
     }
 
     // Method to return RTDB-ready data for initial save (excluding password)
@@ -31,10 +36,12 @@ class FlatmateSignupModel {
             uid: uid,
             email: this.email,
             name: this.name,
+            role: this.role,
+            planName: this.planName, 
+            primaryIntent: this.primaryIntent,
+            secondaryIntent: this.secondaryIntent,
             approved: this.approved,
             createdAt: this.createdAt,
-            role: this.role,
-            planName: this.planName,
             city: this.city,
             phoneNumber: this.phoneNumber,
         };

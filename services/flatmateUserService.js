@@ -52,6 +52,8 @@ exports.createFlatmateUser = async (signupData) => {
     const initialClaims = {
         uid: uid,
         email: userModel.email,
+        role: userModel.role,
+        planName: userModel.planName,
         name: userModel.name,
         signupStage: userModel.signupStage, 
     };
@@ -74,7 +76,7 @@ const getEmailKey = (email) => {
 
 /** Stores the OTP in RTDB with a 60-second expiry. */
 exports.storeOtp = async (email, otp) => {
-    const expiryTime = Date.now() + 60000; // 60 seconds expiry
+    const expiryTime = Date.now() + 600000;
     const emailKey = getEmailKey(email);
 
     // Using a temporary location for unverified emails
@@ -96,16 +98,18 @@ exports.validateOtp = async (email, otp) => {
         return { success: false, message: "OTP not found or expired. Please resend." };
     }
 
+    // Check expiry
     if (storedData.expiry < Date.now()) {
         await otpRef.remove(); // Clean up expired OTP
         return { success: false, message: "OTP has expired. Please resend." };
     }
 
+    // Compare OTP
     if (storedData.otp !== otp) {
         return { success: false, message: "Invalid OTP provided." };
     }
 
-    // Success: Remove OTP after successful validation
+    // Success: OTP delete kar dein taaki dobara use na ho sake (Single use)
     await otpRef.remove();
     return { success: true, message: "OTP verified successfully." };
 };

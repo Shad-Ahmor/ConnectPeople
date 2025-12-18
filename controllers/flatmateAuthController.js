@@ -99,7 +99,13 @@ exports.flatmateSignup = async (req, res) => {
             message: 'Registration successful. Redirecting to Login.', 
             next_step: 'login', 
             token: customToken,
-            user: { email: userData.email, uid, name: userData.name },
+            user: { 
+                email: userData.email, 
+                uid, 
+                name: userData.name,
+                role: userData.role,
+                planName: userData.planName
+            },
         });
 
     } catch (error) {
