@@ -1,31 +1,35 @@
-const nodemailer = require("nodemailer");
+const axios = require("axios");
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const transporter = nodemailer.createTransport({
-      host: "smtp-relay.brevo.com",
-      port: 465, // Port jo aapko wahan dikha
-      secure: true,
-      auth: {
-        user: process.env.BREVO_USER, // Aapka email
-        pass: process.env.BREVO_PASS, // Jo password aapko mila hai
+    const data = {
+      sender: { 
+        name: "FindYourFlatMates", 
+        email: process.env.SUPPORT_EMAIL // Brevo verified sender email
       },
-      connectionTimeout: 10000, 
-      greetingTimeout: 10000,
-    });
-
-    const mailOptions = {
-      from: `"FindYourFlatMates" <${process.env.SUPPORT_EMAIL}>`,
-      to: to,
+      to: [{ email: to }],
       subject: subject,
-      html: html,
+      htmlContent: html,
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log("✅ Mail Sent! Message ID:", info.messageId);
-    return true;
+    const config = {
+      headers: {
+        "api-key": process.env.BREVO_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+    };
+
+    const response = await axios.post("https://api.brevo.com/v3/smtp/email", data, config);
+
+    if (response.status === 201 || response.status === 200) {
+      console.log("✅ Brevo API: Mail Sent Successfully!", response.data.messageId);
+      return true;
+    }
+    return false;
+
   } catch (error) {
-    console.error("❌ SMTP Error:", error.message);
+    console.error("❌ Brevo API Error:", error.response ? error.response.data : error.message);
     return false;
   }
 };
