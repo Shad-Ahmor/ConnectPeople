@@ -25,7 +25,7 @@ const {
 const firebaseAuthMiddleware = require('../services/firebaseAuthMiddleware');
 const rateLimit = require("express-rate-limit"); //To stop brute-force or account-creation bots at Login/Signup/OTP endpoints 
 
-
+const firewall = require("../middleware/firewall.js");
 const {
   trustSession,
 } = require('../controllers/trustSessionController');
@@ -48,14 +48,13 @@ router.post('/trust-session', trustSession);
 // Public Auth Routes
 // ------------------------
 router.post("/signup",authLimiter, flatmateSignup);
-router.post("/send-otp", authLimiter,sendOtp); 
+router.post("/send-otp", authLimiter, firewall, sendOtp);
 router.post("/verify-otp",authLimiter, verifyOtp);
 router.post("/complete-profile",authLimiter, flatmateCompleteProfile);
 router.post("/login",authLimiter, flatmateLogin);
 router.get("/google/callback", googleSSOCallback);
 router.post("/logout",authLimiter, flatmateLogout);
-router.post("/forgot-password",authLimiter, flatmateForgotPassword);
-
+router.post("/forgot-password", authLimiter, firewall, flatmateForgotPassword);
 // ----------------------------------------------------
 // 🔐 Protected Routes (Auth & Listing Management)
 // ----------------------------------------------------

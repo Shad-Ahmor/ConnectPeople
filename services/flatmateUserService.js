@@ -112,24 +112,54 @@ exports.validateOtp = async (email, otp) => {
 /** Sends the OTP via email using the mailer utility. */
 exports.sendOtpEmail = async (email) => {
     const otp = generateOtp();
-    const subject = "Your FindYourFlatMates  Verification Code";
+    const otpArray = otp.toString().split("");
+    const subject = "🔐 Your Verification Code - FindYourFlatMates";
+
     const html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-            <h2 style="color: #FF3366;">FindYourFlatMates: Email Verification</h2>
-            <p>Hi there,</p>
-            <p>Thank you for signing up. Please use the following One-Time Password (OTP) to verify your email address. This code is valid for 60 seconds.</p>
-            <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
-                <h1 style="color: #000; margin: 0; font-size: 30px;">${otp}</h1>
-            </div>
-            <p>If you did not request this, please ignore this email.</p>
-            <p>FindYourFlatMates Team</p>
-        </div>
+    <div style="background-color: #f0f4f8; padding: 40px 10px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 500px; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); border: 1px solid #e1e8f0;">
+            <tr>
+                <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center;">
+                    <div style="background: rgba(255, 255, 255, 0.2); width: 60px; height: 60px; line-height: 60px; border-radius: 18px; margin: 0 auto 15px; font-size: 30px; box-shadow: inset 0 2px 5px rgba(255,255,255,0.4);">🏠</div>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 22px; letter-spacing: 1px; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">FindYourFlatMates</h1>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 40px 30px; text-align: center;">
+                    <h2 style="color: #1a202c; margin-bottom: 10px; font-size: 20px;">Verify Your Identity</h2>
+                    <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">Hello! Use the secure code below to complete your registration. It's valid for <b>10 minutes</b>.</p>
+                    
+                    <div style="margin: 30px 0;">
+                        <table align="center" border="0" cellpadding="0" cellspacing="8">
+                            <tr>
+                                ${otpArray.map(num => `
+                                    <td style="width: 45px; height: 55px; background: #ffffff; border: 2px solid #edf2f7; border-bottom: 4px solid #cbd5e0; border-radius: 12px; font-size: 28px; font-weight: bold; color: #4c51bf; text-align: center; line-height: 55px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">${num}</td>
+                                `).join('')}
+                            </tr>
+                        </table>
+                    </div>
+
+                    <p style="color: #718096; font-size: 13px; margin-top: 25px;">
+                        If you didn't request this code, you can safely ignore this email.
+                    </p>
+                </td>
+            </tr>
+            <tr>
+                <td style="background: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #edf2f7;">
+                    <p style="margin: 0; color: #a0aec0; font-size: 12px;">&copy; 2025 FindYourFlatMates. All rights reserved.</p>
+                    <div style="margin-top: 10px;">
+                        <span style="color: #cbd5e0;">📍 Secure Cloud Verification</span>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
     `;
-    
+
     const emailSent = await sendEmail({ to: email, subject, html });
     
     if (emailSent) {
-        await exports.storeOtp(email, otp); // Store only if email sent successfully
+        await exports.storeOtp(email, otp);
         return { success: true, otp };
     }
     return { success: false };
