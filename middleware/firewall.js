@@ -7,8 +7,8 @@ const admin = require("firebase-admin");
  */
 
 const MONTHLY_LIMIT = 9000; // Brevo free (300*30)
-const IP_LIMIT = 8;
-const EMAIL_LIMIT = 3; 
+const IP_LIMIT = 80;
+const EMAIL_LIMIT = 30; 
 const WINDOW = 86400000; // 24 Hours
 
 const WHITELIST = ["127.0.0.1", "::1", "gdlsofts@gmail.com"];
