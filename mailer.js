@@ -4,11 +4,14 @@ const sendEmail = async ({ to, subject, html }) => {
   try {
     const transporter = nodemailer.createTransport({
       host: "smtp-relay.brevo.com",
-      port: 587, // Port jo aapko wahan dikha
+      port: 465, // Port jo aapko wahan dikha
+      secure: true,
       auth: {
         user: process.env.BREVO_USER, // Aapka email
         pass: process.env.BREVO_PASS, // Jo password aapko mila hai
       },
+      connectionTimeout: 10000, 
+      greetingTimeout: 10000,
     });
 
     const mailOptions = {
