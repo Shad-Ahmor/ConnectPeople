@@ -171,15 +171,11 @@ class FlatmateUserModel {
 
 class ForgotPasswordModel {
     constructor(data) {
-        // --- Required Field ---
         if (!data.email) throw new Error("Email is required for password reset.");
-        
-        // Simple regex check (optional but recommended)
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(data.email)) {
              throw new Error("Invalid email format.");
         }
-
         this.email = data.email;
     }
 }

@@ -266,26 +266,33 @@ exports.handleFlatmateLogin = async (email, locationData) => {
 // ----------------------------------------------------
 // 🟢 SERVICE FUNCTION 4: Send Forgot Password Email
 // ----------------------------------------------------
+// 🟢 SERVICE FUNCTION: Send OTP for Password Reset
 exports.sendPasswordResetEmail = async (resetData) => {
     resetData.email = sanitizeString(resetData.email);
-    const resetModel = new ForgotPasswordModel(resetData); // Model use 1: Validate email
+    const resetModel = new ForgotPasswordModel(resetData);
     const email = resetModel.email;
 
-    const resetLink = await auth.generatePasswordResetLink(email, {
-      url: "http://localhost:8081/login",   
-      handleCodeInApp: true
+    // 1. Generate 6-Digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const emailKey = email.replace(/\./g, '_'); // Firebase key sanitize
+
+    // 2. Save OTP to Realtime Database with 10-min expiry
+    await db.ref(`/flatmate/password_resets/${emailKey}`).set({
+        otp: otp,
+        expiresAt: Date.now() + 600000, // 10 minutes
+        verified: false
     });
 
-    const html = resetPasswordTemplate(resetLink);
-
+    // 3. Prepare Template and Send Email
+    const html = resetPasswordTemplate(otp); // Template ab OTP lega
     const sent = await sendEmail({
-      to: email,
-      subject: "Reset Your Password - Find Your Flatmate",
-      html,
+        to: email,
+        subject: `${otp} is your Reset Code - Find Your Flatmate`,
+        html,
     });
 
     if (!sent) {
-      throw new Error("Failed to send reset email.");
+        throw new Error("Failed to send reset email.");
     }
     
     return true; 

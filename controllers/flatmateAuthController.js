@@ -424,29 +424,77 @@ exports.flatmateLogout = async (req, res) => {
 // ----------------------------------------------------------
 // 🟢 flatmateForgotPassword (CONTROLLER)
 // ----------------------------------------------------------
+// 🟢 Step 1: Send Reset OTP
 exports.flatmateForgotPassword = async (req, res) => {
     const resetData = req.body;
-
     try {
         const success = await flatmateUserService.sendPasswordResetEmail(resetData);
         if (success) {
-            res.status(200).json({ message: "Password reset email sent successfully!" });
+            res.status(200).json({ message: "Reset OTP sent successfully to your email!" });
         }
-
     } catch (error) {
         console.error("Forgot Password Error:", error);
         if (error.message.includes("is required") || error.message.includes("Invalid email")) {
             return res.status(400).json({ message: error.message });
         }
-        if (error.message.includes("Failed to send reset email")) {
-            return res.status(500).json({ message: error.message });
-        }
-        if (error.errorInfo && error.errorInfo.code) {
-            if (error.errorInfo.code === 'auth/user-not-found') {
-                return res.status(404).json({ message: "User not found with this email." });
-            }
-        }
         res.status(500).json({ message: "Something went wrong.", error: error.message });
+    }
+};
+
+// 🟢 Step 2: NEW CONTROLLER - Verify OTP & Change Password
+exports.flatmateVerifyAndResetPassword = async (req, res) => {
+    // 1. input se 'onlyVerify' flag nikalein jo humne frontend se bheja hai
+    const { email, otp, newPassword, onlyVerify } = req.body;
+
+    // 2. Modified Validation: Agar onlyVerify hai toh newPassword zaroori nahi hai
+    if (!email || !otp || (!onlyVerify && !newPassword)) {
+        return res.status(400).json({ 
+            message: onlyVerify ? "Email and OTP are required." : "Email, OTP, and New Password are required." 
+        });
+    }
+
+    try {
+        const emailKey = email.replace(/\./g, '_');
+        const otpRef = db.ref(`/flatmate/password_resets/${emailKey}`);
+        const snapshot = await otpRef.once('value');
+        const data = snapshot.val();
+
+        // 1. Check if OTP exists and matches
+        if (!data || data.otp !== otp) {
+            return res.status(400).json({ message: "Invalid OTP code." });
+        }
+
+        // 2. Check if expired
+        if (Date.now() > data.expiresAt) {
+            await otpRef.remove();
+            return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+        }
+
+        // --- ✅ NEW LOGIC: AGAR SIRF VERIFY KARNA HAI ---
+        if (onlyVerify) {
+            return res.status(200).json({ 
+                message: "OTP Verified! You can now change your password.",
+                success: true 
+            });
+        }
+
+        // 3. Update Password (Tabhi chalega jab onlyVerify: false ya missing ho)
+        const userRecord = await auth.getUserByEmail(email);
+        await auth.updateUser(userRecord.uid, {
+            password: newPassword
+        });
+
+        // 4. Cleanup: Success ke baad delete karein
+        await otpRef.remove();
+
+        res.status(200).json({ message: "Password updated successfully! Please login." });
+
+    } catch (error) {
+        console.error("Reset Final Error:", error);
+        if (error.code === 'auth/user-not-found') {
+            return res.status(404).json({ message: "User not found." });
+        }
+        res.status(500).json({ message: "Failed to reset password.", error: error.message });
     }
 };
 

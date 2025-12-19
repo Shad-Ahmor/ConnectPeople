@@ -7,6 +7,7 @@ const {
   verifyOtp,
   flatmateLogin,
   flatmateForgotPassword,
+  flatmateVerifyAndResetPassword,
   flatmateCompleteProfile,
   flatmateLogout,
   getCurrentUser,
@@ -55,6 +56,11 @@ router.post("/login",authLimiter, flatmateLogin);
 router.get("/google/callback", googleSSOCallback);
 router.post("/logout",authLimiter, flatmateLogout);
 router.post("/forgot-password", authLimiter, firewall, flatmateForgotPassword);
+router.post(
+    "/verify-reset-password", 
+    firewall, 
+    flatmateVerifyAndResetPassword
+);
 // ----------------------------------------------------
 // 🔐 Protected Routes (Auth & Listing Management)
 // ----------------------------------------------------
