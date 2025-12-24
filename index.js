@@ -63,7 +63,12 @@ app.use((req, res, next) => {
 // Flatmate Routes
 // --------------------
 app.use("/flatmate", flatmateAuthRoutes);
-
+app.get("/health", (req, res) => {
+  if (req.headers["x-health-key"] !== process.env.HEALTH_KEY) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  res.json({ status: "ok" });
+});
 // --------------------
 // Start Server
 // --------------------

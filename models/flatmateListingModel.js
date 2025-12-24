@@ -10,8 +10,8 @@ class FlatmateListingModel {
         // ------------------------------------
         if (!data.location) throw new Error("Location is required for the listing.");
         
-        // 🔥 FIX 1: Price को DB ('price') या Client ('rent') से प्राप्त करें
-        const rawPrice = getFieldValue('rent', 'price');
+        // 🔥 FIX 1: Price को DB ('rent') या Client ('rent') से प्राप्त करें
+        const rawPrice = getFieldValue('rent', 'rent');
         if (!rawPrice) throw new Error("Price is required for the listing (Price/Rent field missing).");
         
         if (!data.listing_goal) throw new Error("Listing Goal is required (e.g., Rent, Sell).");
@@ -22,7 +22,7 @@ class FlatmateListingModel {
         
         if (!data.deposit) throw new Error("Deposit amount is required.");
 
-        // Price validation (अब यह 'rawPrice' का उपयोग करता है जो 'price' या 'rent' हो सकता है)
+        // Price validation (अब यह 'rawPrice' का उपयोग करता है जो 'rent' या 'rent' हो सकता है)
         const parsedPrice = parseFloat(rawPrice);
         if (isNaN(parsedPrice) || parsedPrice <= 0) {
             throw new Error("Price must be a valid positive number.");
@@ -49,7 +49,7 @@ class FlatmateListingModel {
         // --- Assign Core Fields (MAPPED & NEW) ---
         // ------------------------------------
         this.location = data.location;
-        this.price = parsedPrice; // Mapped from 'price' or 'rent'
+        this.rent = parsedPrice; // Mapped from 'rent' or 'rent'
         this.deposit = parsedDeposit; 
         this.listing_goal = data.listing_goal; 
         this.imageLinks = validImageLinks; // Mapped from 'imageLinks' or 'image_links'
@@ -91,7 +91,7 @@ class FlatmateListingModel {
         // Mapped from client's 'is_brokerage_free' or DB's 'is_no_brokerage'
         this.is_no_brokerage = !!(data.is_no_brokerage || data.is_brokerage_free); 
         
-        this.max_negotiable_price = parseFloat(data.max_negotiable_price) || null; 
+        this.max_negotiable_rent = parseFloat(data.max_negotiable_rent) || null; 
         
         // Mapped from client's 'negotiation_margin' (which is a string like '5') or DB's 'negotiation_margin_percent'
         this.negotiation_margin_percent = parseInt(data.negotiation_margin_percent || data.negotiation_margin) || 0; 
@@ -154,7 +154,7 @@ class FlatmateListingModel {
         return {
             // --- Core Fields ---
             location: this.location,
-            price: this.price, // DB name
+            rent: this.rent, // DB name
             deposit: this.deposit, 
             listing_goal: this.listing_goal,
             imageLinks: this.imageLinks, // DB name
@@ -171,7 +171,7 @@ class FlatmateListingModel {
             selectedAmenities: this.selectedAmenities,
             is_flatmate_listing: this.is_flatmate_listing,
             is_no_brokerage: this.is_no_brokerage,
-            max_negotiable_price: this.max_negotiable_price,
+            max_negotiable_rent: this.max_negotiable_rent,
             negotiation_margin_percent: this.negotiation_margin_percent,
             preferred_gender: this.preferred_gender,
             preferred_occupation: this.preferred_occupation,
@@ -216,7 +216,7 @@ class FlatmateListingModel {
         return {
             listingId,
             location: this.location,
-            price: this.price,
+            rent: this.rent,
             deposit: this.deposit,
             listing_goal: this.listing_goal,
             imageLinks: this.imageLinks,
@@ -240,7 +240,7 @@ class FlatmateListingModel {
         
         return {
             listingId: listingId,
-            price: data.price,
+            rent: data.rent,
             image: data.imageLinks && data.imageLinks.length > 0 ? data.imageLinks[0] : null, // Only first image
             propertyType: data.propertyType,
             location: data.location,
@@ -263,7 +263,7 @@ class FlatmateListingModel {
         return {
             listingId,
             location: this.location,
-            price: this.price,
+            rent: this.rent,
             deposit: this.deposit,
             listingGoal: this.listing_goal,
             description: this.description,
@@ -292,7 +292,7 @@ class FlatmateListingModel {
             
             financials: {
                 isNoBrokerage: this.is_no_brokerage,
-                maxNegotiablePrice: this.max_negotiable_price,
+                maxNegotiablePrice: this.max_negotiable_rent,
                 negotiationMarginPercent: this.negotiation_margin_percent,
             },
             

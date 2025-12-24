@@ -226,7 +226,7 @@ exports.updateUserListing = async (userId, listingId, updates) => {
     // FIX: Expanded updatableFields to include all new fields from the model's RTDB output
     const updatableFields = [
         // Core Details
-        'price', 'deposit', 'description', 'location', 
+        'rent', 'deposit', 'description', 'location', 
         
         // Property Details (Step 2 & 3)
         'bedrooms', 'bathrooms', 'carpetArea',
@@ -242,7 +242,7 @@ exports.updateUserListing = async (userId, listingId, updates) => {
         
         // Negotiation & Requirements (Step 5)
         'is_no_brokerage', 
-        'max_negotiable_price', 
+        'max_negotiable_rent', 
         'negotiation_margin_percent', 
         'preferred_gender', 'preferred_occupation', 'preferred_work_location', 
         
@@ -263,7 +263,7 @@ exports.updateUserListing = async (userId, listingId, updates) => {
     }
     
     // 2. Perform necessary type casting/data cleaning for RTDB (Basic check)
-    if (allowedUpdates.price !== undefined) allowedUpdates.price = Number(allowedUpdates.price) || 0;
+    if (allowedUpdates.rent !== undefined) allowedUpdates.rent = Number(allowedUpdates.rent) || 0;
     if (allowedUpdates.deposit !== undefined) allowedUpdates.deposit = Number(allowedUpdates.deposit) || 0;
     // NOTE: More robust type-casting and validation should ideally happen here or in a dedicated validation layer.
 
