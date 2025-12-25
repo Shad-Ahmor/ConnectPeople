@@ -1,15 +1,17 @@
 const axios = require("axios");
 
-const sendEmail = async ({ to, subject, html }) => {
+const sendEmail = async ({ to, subject, html , otp }) => {
   try {
     const data = {
       sender: { 
-        name: "FindYourFlatMates", 
+        name: "FYF Support", 
         email: process.env.SUPPORT_EMAIL // Brevo verified sender email
       },
+      replyTo: { email: process.env.SUPPORT_EMAIL },
       to: [{ email: to }],
       subject: subject,
       htmlContent: html,
+      textContent: `Your FindYourFlatMates verification code is: ${otp}. This code is valid for 10 minutes.`
     };
 
     const config = {
@@ -22,11 +24,7 @@ const sendEmail = async ({ to, subject, html }) => {
 
     const response = await axios.post("https://api.brevo.com/v3/smtp/email", data, config);
 
-    if (response.status === 201 || response.status === 200) {
-      console.log("✅ Brevo API: Mail Sent Successfully!", response.data.messageId);
-      return true;
-    }
-    return false;
+    return response.status === 201 || response.status === 200;
 
   } catch (error) {
     console.error("❌ Brevo API Error:", error.response ? error.response.data : error.message);
