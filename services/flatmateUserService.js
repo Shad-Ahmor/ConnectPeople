@@ -117,17 +117,20 @@ exports.validateOtp = async (email, otp) => {
 exports.sendOtpEmail = async (email) => {
     const otp = generateOtp();
     const otpArray = otp.toString().split("");
-    const subject = "🔐 Your Verification Code - FindYourFlatMates";
+    const subject = `FYF: ${otp} is your verification code`;
     const html = `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-        <h2>Your Verification Code</h2>
+    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; line-height: 1.5;">
+        <h2 style="color: #4c51bf;">Account Verification</h2>
         <p>Hello,</p>
-        <p>Your OTP for FindYourFlatMates is: <b>${otp}</b></p>
-        <p>This code is valid for 10 minutes.</p>
-        <hr />
-        <p style="font-size: 12px; color: #888;">This is an automated message from FindYourFlatMates.</p>
+        <p>Your OTP for <strong>FindYourFlatMates</strong> is:</p>
+        <div style="background: #f4f4f4; padding: 15px; font-size: 24px; font-weight: bold; text-align: center; border-radius: 8px; border: 1px solid #ddd; letter-spacing: 5px;">
+            ${otp}
+        </div>
+        <p>This code is valid for 10 minutes. Please do not share this OTP with anyone.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="font-size: 11px; color: #999;">If you didn't request this, please ignore this email.</p>
     </div>
-`;
+    `;
 
     // const html = `
     // <div style="background-color: #f0f4f8; padding: 40px 10px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
