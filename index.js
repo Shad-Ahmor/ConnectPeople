@@ -2,14 +2,13 @@ const path = require('path');
 // 💡 FIX 1: Assuming .env file is next to index.js inside the ConnectPeople folder
 // Change '..' to '.' if the .env file is in the same folder as index.js.
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
-
 const express = require('express');
+const app = express();
 app.set('trust proxy', 1);
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
-const app = express();
 const port = process.env.PORT || 5000;
 const flatmateAuthRoutes = require("./routes/flatmateAuthRoutes.js");
 const propertyRoutes = require("./routes/flatmatePropertyRoutes.js");
