@@ -1,6 +1,4 @@
 const path = require('path');
-// 💡 FIX 1: Assuming .env file is next to index.js inside the ConnectPeople folder
-// Change '..' to '.' if the .env file is in the same folder as index.js.
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const express = require('express');
 const app = express();
@@ -17,67 +15,66 @@ const notificationRoutes = require("./routes/flatmateNotificationRoutes.js");
 const negotiateRoutes = require("./routes/flatmateNegotiateRoutes.js");
 const chatRoutes = require("./routes/chatRoutes.js");
 
-// --------------------
-// CORS Setup
-// --------------------
-// Sabhi endpoints ke liye allow karne ke liye origin callback use kar rahe hain
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // 15 मिनट में प्रत्येक IP से अधिकतम 1000 अनुरोध (requests)
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: "Too many requests from this IP, please try again after 15 minutes",
   standardHeaders: true, 
   legacyHeaders: false,
 });
 app.use(globalLimiter);
 
+// 🟢 FIX: CORS setup with explicit allowed headers
 app.use(cors({
   origin: process.env.FRONTEND_ORIGIN?.replace(/\/$/, ""),
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 }));
 
-// --------------------
-// Middlewares
-// --------------------
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false, 
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }, // 💡 Google SSO ke liye zaroori
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   contentSecurityPolicy: false, 
 }));
+
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// --------------------
-// Cookie Middleware for Secure + HttpOnly
-// --------------------
-// Helper middleware to set default cookie options for all responses
 const isProduction = process.env.NODE_ENV === "production";
+
 app.use((req, res, next) => {
   res.setCookie = (name, value, options = {}) => {
-    res.cookie(name, value, {
+    // 💡 PRO TIP: Server par agar cookie nahi mil rahi, toh domain attribute check karna padta hai
+    const cookieConfig = {
       httpOnly: true,
-      secure: isProduction,
-     sameSite: isProduction ? 'none' : 'lax', 
+      secure: true, // Server (HTTPS) par hamesha true hona chahiye login/me sync ke liye
+      sameSite: 'none', // Cross-site (Frontend to Backend) ke liye 'none' + secure: true mandatory hai
       path: '/',
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      maxAge: 1000 * 60 * 60 * 24 * 7,
       ...options
-   });
-  
+    };
+
+    // Local development ke liye secure check relax kar sakte hain agar HTTPS nahi hai
+    if (!isProduction && req.hostname === 'localhost') {
+        cookieConfig.secure = false;
+        cookieConfig.sameSite = 'lax';
+    }
+
+    res.cookie(name, value, cookieConfig);
   };
   next();
 });
 
-// --------------------
-// Flatmate Routes
-// --------------------
 app.use("/flatmate", flatmateAuthRoutes);
 app.use("/property", propertyRoutes);
 app.use("/images", imageRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/negotiate", negotiateRoutes);
 app.use("/chat", chatRoutes);
+
 app.get("/health", (req, res) => {
   if (req.headers["x-health-key"] !== process.env.HEALTH_KEY) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -85,9 +82,6 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// --------------------
-// Start Server
-// --------------------
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-});       
+});
