@@ -1,18 +1,23 @@
 const admin = require('firebase-admin');
 const { getFirebaseInstance } = require('../config/firebaseConfig.js'); // Aapki config file jahan getFirebaseInstance hai
+
 const verifyToken = async (req, res, next) => {
   try {
-    const sessionCookie = req.cookies?.session;
+    // 💡 DYNAMIC COOKIE NAME FIX
+    const appName = req.query.appName || req.body.appName || 'flatmate';
+    const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
+    
+    const sessionCookie = req.cookies?.[dynamicCookieName]; // Hardcoded 'session' ki jagah dynamic use kiya
+
     if (!sessionCookie) {
       return res.status(401).json({ success: false, message: 'No session cookie found' });
     }
 
-    const appName = req.query.appName || req.body.appName || 'flatmate';
     const { auth } = getFirebaseInstance(appName);
 
     // ✅ Verify session cookie
-      const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);    
-      req.user = {
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);    
+    req.user = {
       uid: decodedClaims.uid,
       ...decodedClaims
     };

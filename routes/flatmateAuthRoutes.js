@@ -32,9 +32,6 @@ const authLimiter = rateLimit({
     message: "Too many login/signup/OTP attempts. Try again in 5 minutes.",
 });
 
-// Parse JSON and URL-encoded payloads
-router.use(express.urlencoded({ extended: true }));
-router.use(express.json());
 
 
 router.post('/trust-session', trustSession);
@@ -45,17 +42,17 @@ router.post('/trust-session', trustSession);
 router.post("/signup",authLimiter, flatmateSignup);
 router.post("/send-otp", authLimiter, firewall, sendOtp);
 router.post("/verify-otp",authLimiter, verifyOtp);
-router.post("/complete-profile",authLimiter, flatmateCompleteProfile);
+router.post("/complete-profile", firebaseAuthMiddleware.verifyToken, flatmateCompleteProfile);
 router.post("/login",authLimiter, flatmateLogin);
+router.get("/me", firebaseAuthMiddleware.verifyToken, getCurrentUser);
+router.post("/logout", firebaseAuthMiddleware.verifyToken, flatmateLogout);
 router.get("/google/callback", googleSSOCallback);
-router.post("/logout",authLimiter, flatmateLogout);
 router.post("/forgot-password", authLimiter, firewall, flatmateForgotPassword);
 router.post(
     "/verify-reset-password", 
     firewall, 
     flatmateVerifyAndResetPassword
 );
-router.get("/me", firebaseAuthMiddleware.verifyToken, getCurrentUser);
 router.get("/profile/:uid", firebaseAuthMiddleware.verifyToken, getFlatmateProfile);
 router.patch("/profile/update", firebaseAuthMiddleware.verifyToken, updateFlatmateProfile);
 

@@ -29,15 +29,22 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
 });
 app.use(globalLimiter);
+
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN, 
+  origin: process.env.FRONTEND_ORIGIN?.replace(/\/$/, ""),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], 
 }));
 
 // --------------------
 // Middlewares
 // --------------------
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false, 
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }, // 💡 Google SSO ke liye zaroori
+  contentSecurityPolicy: false, 
+}));
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -49,14 +56,15 @@ app.use(express.urlencoded({ extended: true }));
 const isProduction = process.env.NODE_ENV === "production";
 app.use((req, res, next) => {
   res.setCookie = (name, value, options = {}) => {
-    const defaultOptions = {
+    res.cookie(name, value, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+     sameSite: isProduction ? 'none' : 'lax', 
       path: '/',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    };
-    res.cookie(name, value, { ...defaultOptions, ...options });
+      ...options
+   });
+  
   };
   next();
 });
@@ -76,6 +84,7 @@ app.get("/health", (req, res) => {
   }
   res.json({ status: "ok" });
 });
+
 // --------------------
 // Start Server
 // --------------------

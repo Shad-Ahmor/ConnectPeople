@@ -11,6 +11,13 @@ const sanitizeString = (input) => {
     return input.replace(/</g, "&lt;").replace(/>/g, "&gt;").trim(); 
 };
 const isProduction = process.env.NODE_ENV === 'production';
+const { OAuth2Client } = require('google-auth-library');
+const GOOGLE_CLIENT_ID = process.env.OAUTH_CLIENT_ID; 
+const GOOGLE_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
+const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
+const REDIRECT_URI = process.env.REDIRECT_URI; 
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
+
 // ----------------------------------------------------------
 // 🟢 flatmateSignup (CONTROLLER)
 // ----------------------------------------------------------
@@ -88,13 +95,8 @@ exports.flatmateSignup = async (req, res) => {
         const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 Din
         const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn });
         // 3. Cookie set karein - Refresh fix ke liye 'session' naam rakhein
-        res.cookie('session', sessionCookie, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: 'lax', 
-            maxAge: expiresIn,
-            path: '/'
-        });
+        const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
+        res.setCookie(dynamicCookieName, sessionCookie);
 
         // 4. Response bhejien
         res.status(201).json({
@@ -121,43 +123,66 @@ exports.flatmateSignup = async (req, res) => {
 exports.flatmateCompleteProfile = async (req, res) => {
     const appName = req.body.appName || 'flatmate';
     const { auth } = getFirebaseInstance(appName);
+    
     // 1. टोकन प्राप्त करें (Cookie या Header से)
-    // 💡 FIX: Cookie name 'session' use karein jo aapne signup/login mein set kiya hai
     const token = req.cookies.session || req.cookies.token || req.headers.authorization?.split(' ')[1];
     
-    if (!token) {
-        return res.status(401).json({ message: "Unauthorized. No token provided." });
+    // 💡 Priority check: Agar middleware ne pehle hi verify kar diya hai (req.userId), 
+    // toh wahi use karein, warna token decode karein.
+    let uid = req.userId || req.user?.uid; 
+
+    if (!uid && !token) {
+        return res.status(401).json({ message: "Unauthorized. No token or session found." });
     }
 
-    let uid; // Declare outside to handle scope
-    try {
-        // 2. Firebase Session Cookie वेरीफाई करने की कोशिश करें
-        const decodedClaims = await auth.verifySessionCookie(token, true);
-        uid = decodedClaims.uid; // Scope fix: remove 'const' here
-    } catch (err) {
-        /* 💡 अगर verifySessionCookie फेल होता है, तो इसका मतलब है कि यह Custom Token है या ID Token है।
-           JWT डिकोड करके UID निकाल सकते हैं:
-        */
+    // Agar UID middleware se nahi mila, tabhi manually verify/decode karein
+    if (!uid) {
         try {
-            const decodedCustom = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-            
-            uid = decodedCustom.uid || decodedCustom.sub;
-            
-            if (!uid) throw new Error("No UID in token");
-        } catch (innerErr) {
-            return res.status(401).json({ message: "Invalid or expired token. Please login again." });
+            // 2. Firebase Session Cookie वेरीफाई करने की कोशिश करें
+            const decodedClaims = await auth.verifySessionCookie(token, true);
+            uid = decodedClaims.uid;
+        } catch (err) {
+            /* 💡 अगर verifySessionCookie फेल होता है (Custom/ID Token के केस में), 
+               JWT डिकोड करके UID निकालें 
+            */
+            try {
+                const base64Url = token.split('.')[1];
+                if (!base64Url) throw new Error("Invalid JWT format");
+                const decodedCustom = JSON.parse(Buffer.from(base64Url, 'base64').toString());
+                
+                uid = decodedCustom.uid || decodedCustom.sub;
+                
+                if (!uid) throw new Error("No UID in token");
+            } catch (innerErr) {
+                console.error("Token decoding failed:", innerErr.message);
+                return res.status(401).json({ message: "Invalid or expired token. Please login again." });
+            }
         }
     }
 
     // 3. प्रोफाइल डेटा अपडेट करें
     const profileData = req.body;
-    if (!profileData.city || !profileData.phoneNumber) {
+    // Sanitization for safety
+    const sanitizedCity = sanitizeString(profileData.city);
+    const sanitizedPhone = sanitizeString(profileData.phoneNumber);
+
+    if (!sanitizedCity || !sanitizedPhone) {
         return res.status(400).json({ message: "City and Phone number are required." });
     }
 
     try {
-        // Service already handles dynamic app instances and models
-        const updatedProfile = await flatmateUserService.completeFlatmateProfile(uid, profileData);
+        // Data format set karein as per Service requirement
+        const finalProfileData = {
+            ...profileData,
+            city: sanitizedCity,
+            phoneNumber: sanitizedPhone,
+            profileCompleted: true,
+            updatedAt: Date.now()
+        };
+
+        // Service handles dynamic app instances and models
+        const updatedProfile = await flatmateUserService.completeFlatmateProfile(uid, finalProfileData);
+        
         res.status(200).json({
             message: 'Profile completed successfully!',
             user: updatedProfile,
@@ -185,7 +210,6 @@ exports.flatmateLogin = async (req, res) => {
 
   try {
     // Firebase REST API sign-in
-    const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
     const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
 
     const signInResponse = await axios.post(signInUrl, {
@@ -199,6 +223,9 @@ exports.flatmateLogin = async (req, res) => {
     const uid = signInResponse.data.localId;
     const userSnapshot = await db.ref(`${rootNode}/users/${uid}`).once('value');
     const userData = userSnapshot.val();
+    if (!userData) {
+        return res.status(404).json({ message: "User data not found in database." });
+    }
     const userRole = userData?.role || 'Tenant';
 
     // Create session cookie
@@ -206,13 +233,8 @@ exports.flatmateLogin = async (req, res) => {
     const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
 
     // Set HttpOnly cookie
-    res.cookie(COOKIE_NAME, sessionCookie, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      maxAge: SESSION_EXPIRES,
-      path: '/',
-    });
+    const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
+    res.setCookie(dynamicCookieName, sessionCookie);
 
     // Save last login location in RTDB
     await db.ref(`${rootNode}/users/${uid}/lastLogin`).set({
@@ -242,7 +264,11 @@ exports.flatmateLogin = async (req, res) => {
 exports.getCurrentUser = async (req, res) => {
   const appName = req.query.appName || 'flatmate';
   const { auth, db } = getFirebaseInstance(appName);
-  const sessionCookie = req.cookies?.session;
+  
+  // 💡 DYNAMIC COOKIE NAME FIX: Sahi cookie pick karne ke liye
+  const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
+  const sessionCookie = req.cookies?.[dynamicCookieName]; // Pehle yahan hardcoded .session tha
+
   if (!sessionCookie) return res.status(401).json({ message: "Unauthorized. No session found." });
 
   try {
@@ -260,7 +286,7 @@ exports.getCurrentUser = async (req, res) => {
     // 🚀 MAGIC: Firebase Client ke liye token banayein
     const firebaseToken = await auth.createCustomToken(uid);
    res.status(200).json({ 
-      user: { uid, ...userData }, 
+      user: { uid, ...userData,role: userData.role || 'Tenant' }, 
       firebaseToken // Ye token frontend ko bhejein
     });
   } catch (error) {
@@ -358,23 +384,19 @@ exports.updateFlatmateProfile = async (req, res) => {
 // 🟢 flatmateLogout (CONTROLLER)
 // ----------------------------------------------------------
 exports.flatmateLogout = async (req, res) => {
-    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     try {
         const sessionCookie = req.cookies?.session;
-
-        if (!sessionCookie) {
-            return res.status(400).json({ message: "No active session found." });
+        if (sessionCookie) {
+            const { auth } = getFirebaseInstance(req.body.appName || 'flatmate');
+            const decoded = await auth.verifySessionCookie(sessionCookie, true);
+            await auth.revokeRefreshTokens(decoded.uid);
         }
+  
 
-        // Session cookie verify
-       const decoded = await auth.verifySessionCookie(sessionCookie, true);
-       await auth.revokeRefreshTokens(decoded.uid);
-
-        // Clear session cookie
-        res.clearCookie("session", {
+       res.clearCookie("session", {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax",
             path: "/",
         });
 
@@ -384,8 +406,8 @@ exports.flatmateLogout = async (req, res) => {
         console.error("Logout error:", error);
         res.clearCookie("session", {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax",
             path: "/",
         });
         return res.status(500).json({ message: "Server error during logout.", error: error.message });
@@ -462,12 +484,6 @@ exports.flatmateVerifyAndResetPassword = async (req, res) => {
     }
 };
 
-const { OAuth2Client } = require('google-auth-library');
-const GOOGLE_CLIENT_ID = process.env.OAUTH_CLIENT_ID; 
-const GOOGLE_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
-const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
-const REDIRECT_URI = process.env.REDIRECT_URI; 
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 
 // Function signature mein appName add karein
 const findOrCreateFlatmateUser = async (googleProfile, appName = 'flatmate') => {
@@ -550,7 +566,7 @@ exports.googleSSOCallback = async (req, res) => {
         const customToken = await auth.createCustomToken(user.uid);
         
         const tokenResponse = await axios.post(
-            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FLATMATE_API_KEY}`,
+            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`,
             {
                 token: customToken,
                 returnSecureToken: true
@@ -562,13 +578,8 @@ exports.googleSSOCallback = async (req, res) => {
         const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
 
         // 7. Set HttpOnly cookie
-        res.cookie(COOKIE_NAME, sessionCookie, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: SESSION_EXPIRES,
-            path: '/',
-        });
+        const activeCookieName = appName === 'flatmate' ? 'session' : `${appName}_session`; 
+        res.setCookie(activeCookieName, sessionCookie);
 
         // 8. Return the user data to the frontend via postMessage
         const userDataForClient = JSON.stringify({
