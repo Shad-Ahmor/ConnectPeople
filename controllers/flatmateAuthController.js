@@ -1,14 +1,11 @@
 // flatmateAuthController.js
 
-const firebaseAdmin = require('firebase-admin');
-const { auth, db, getFlatmateUserByEmail } = require('../config/firebaseConfig.js');
+const { getFlatmateUserByEmail, getFirebaseInstance } = require('../config/firebaseConfig.js');
 const sendEmail = require("../mailer.js");
 const { resetPasswordTemplate } = require("../templates/resetPasswordTemplate.js");
 const flatmateUserService = require('../services/flatmateUserService.js'); 
 const axios = require('axios');
 const { sendOtpEmail, validateOtp } = require('../services/flatmateUserService.js'); // New imports
-
-
 const sanitizeString = (input) => {
     if (typeof input !== 'string') return input;
     return input.replace(/</g, "&lt;").replace(/>/g, "&gt;").trim(); 
@@ -17,6 +14,7 @@ const sanitizeString = (input) => {
 // 🟢 flatmateSignup (CONTROLLER)
 // ----------------------------------------------------------
 exports.sendOtp = async (req, res) => {
+    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     const { email } = req.body;
 
     if (!email) {
@@ -52,6 +50,7 @@ exports.sendOtp = async (req, res) => {
 // 💡 ENDPOINT 2: Verify OTP (Step 2) - Unchanged, Already Correct
 // -----------------------------------------------------------------
 exports.verifyOtp = async (req, res) => {
+    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     const { email, otp } = req.body;
 
     if (!email || !otp) {
@@ -72,56 +71,46 @@ exports.verifyOtp = async (req, res) => {
         res.status(500).json({ message: 'Server error during OTP verification.', error: error.message });
     }
 };
-// --- MODIFIED ENDPOINT 3: flatmateSignup (Final Step) ---
 exports.flatmateSignup = async (req, res) => {
+    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     const signupData = req.body;
 
-    // ✅ NEW CHECK: Ensure the client state reflects that email verification passed.
-    // The client should send { email, username, password, isEmailVerified: true }
     if (!signupData.isEmailVerified) {
-        return res.status(403).json({ message: 'Email must be verified before finalizing registration. Please go back to Step 1.' });
+        return res.status(403).json({ message: 'Email must be verified first.' });
     }
     
-    // The rest of the logic remains the same.
     try {
-        const { uid, userData, customToken } = await flatmateUserService.createFlatmateUser(signupData);
-        
-        // ... (existing cookie setting logic)
-        res.cookie('token', customToken, {
+        // 1. Service call - ab idToken yahan se aayega
+        const { uid, userData, idToken } = await flatmateUserService.createFlatmateUser(signupData);
+
+        // 2. Firebase Session Cookie banayein
+        const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 Din
+        const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn });
+        // 3. Cookie set karein - Refresh fix ke liye 'session' naam rakhein
+        res.cookie('session', sessionCookie, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'Strict', 
-            maxAge: 60 * 60 * 1000, // 1 hour
+            secure: process.env.NODE_ENV === "production",
+            sameSite: 'lax', 
+            maxAge: expiresIn,
+            path: '/'
         });
 
+        // 4. Response bhejien
         res.status(201).json({
-            // Changed message and next_step to reflect successful final signup
-            message: 'Registration successful. Redirecting to Login.', 
-            next_step: 'login', 
-            token: customToken,
+            message: 'Registration successful.', 
+            uid: uid,
             user: { 
+                uid: uid,
                 email: userData.email, 
-                uid, 
                 name: userData.name,
-                role: userData.role,
-                planName: userData.planName
+                role: userData.role || signupData.primaryIntent,
+                primaryIntent: userData.primaryIntent,
+                secondaryIntent: userData.secondaryIntent
             },
         });
 
     } catch (error) {
-        // ... (existing error handling)
-        if (error.message.includes("is required")) {
-            return res.status(400).json({ message: error.message });
-        }
-        if (error.code === 'auth/email-already-exists') {
-            return res.status(409).json({ message: 'User already exists with this email' });
-        }
-        if (error.code === 'auth/weak-password') {
-            return res.status(400).json({ message: 'Password is too weak (min 6 characters)' });
-        }
-        if (error.code === 'auth/invalid-email') {
-            return res.status(400).json({ message: 'Invalid email address' });
-        }
+        console.error("Signup Error:", error);
         res.status(500).json({ message: 'Error creating user', error: error.message });
     }
 };
@@ -129,29 +118,27 @@ exports.flatmateSignup = async (req, res) => {
 // 🟢 flatmateCompleteProfile (CONTROLLER)
 // ----------------------------------------------------------
 exports.flatmateCompleteProfile = async (req, res) => {
+    const appName = req.body.appName || 'flatmate';
+    const { auth } = getFirebaseInstance(appName);
     // 1. टोकन प्राप्त करें (Cookie या Header से)
-    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+    // 💡 FIX: Cookie name 'session' use karein jo aapne signup/login mein set kiya hai
+    const token = req.cookies.session || req.cookies.token || req.headers.authorization?.split(' ')[1];
     
     if (!token) {
         return res.status(401).json({ message: "Unauthorized. No token provided." });
     }
 
-    let uid;
+    let uid; // Declare outside to handle scope
     try {
-        // 2. Firebase ID Token वेरीफाई करने की कोशिश करें
-        const decoded = await firebaseAdmin.auth().verifyIdToken(token);
-        uid = decoded.uid;
+        // 2. Firebase Session Cookie वेरीफाई करने की कोशिश करें
+        const decodedClaims = await auth.verifySessionCookie(token, true);
+        uid = decodedClaims.uid; // Scope fix: remove 'const' here
     } catch (err) {
-        /* 💡 अगर verifyIdToken फेल होता है, तो इसका मतलब है कि यह Custom Token है।
-           चूंकि Custom Token को verifyIdToken से चेक नहीं किया जा सकता, 
-           इसलिए प्रोडक्शन में आपको क्लाइंट को लॉगिन कराना चाहिए।
-           लेकिन अभी के लिए, आप JWT डिकोड करके UID निकाल सकते हैं (सिर्फ अगर आप टोकन पर भरोसा करते हैं):
+        /* 💡 अगर verifySessionCookie फेल होता है, तो इसका मतलब है कि यह Custom Token है या ID Token है।
+           JWT डिकोड करके UID निकाल सकते हैं:
         */
         try {
-            const decodedCustom = firebaseAdmin.auth().verifySessionCookie ? 
-                                  // अगर आपने सेशन कुकी बनाई है तो उसे चेक करें, 
-                                  // वरना कस्टम टोकन डिकोड करें:
-                                  JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()) : {};
+            const decodedCustom = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
             
             uid = decodedCustom.uid || decodedCustom.sub;
             
@@ -168,6 +155,7 @@ exports.flatmateCompleteProfile = async (req, res) => {
     }
 
     try {
+        // Service already handles dynamic app instances and models
         const updatedProfile = await flatmateUserService.completeFlatmateProfile(uid, profileData);
         res.status(200).json({
             message: 'Profile completed successfully!',
@@ -178,8 +166,6 @@ exports.flatmateCompleteProfile = async (req, res) => {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 };
-
-
 // ----------------------------------------------------------
 // 🟢 flatmateLogin (CONTROLLER)
 // // ----------------------------------------------------------
@@ -187,6 +173,9 @@ exports.flatmateCompleteProfile = async (req, res) => {
 const COOKIE_NAME = 'session';
 const SESSION_EXPIRES = 60 * 60 * 24 * 7 * 1000; // 7 days
 exports.flatmateLogin = async (req, res) => {
+   const appName = req.body.appName || 'flatmate'; 
+    const { auth, db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
   const { email, password, latitude, longitude ,captchaToken} = req.body;
 
   if (!email || !password) {
@@ -205,13 +194,15 @@ exports.flatmateLogin = async (req, res) => {
     });
 
     const idToken = signInResponse.data.idToken;
+    
     const uid = signInResponse.data.localId;
-    const userSnapshot = await db.ref(`flatmate/users/${uid}`).once('value');
+    const userSnapshot = await db.ref(`${rootNode}/users/${uid}`).once('value');
     const userData = userSnapshot.val();
     const userRole = userData?.role || 'Tenant';
 
     // Create session cookie
-    const sessionCookie = await firebaseAdmin.auth().createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
+    
+    const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
 
     // Set HttpOnly cookie
     res.cookie(COOKIE_NAME, sessionCookie, {
@@ -223,8 +214,8 @@ exports.flatmateLogin = async (req, res) => {
     });
 
     // Save last login location in RTDB
-    await db.ref(`flatmate/users/${uid}/lastLogin`).set({
-      latitude: latitude || null,
+    await db.ref(`${rootNode}/users/${uid}/lastLogin`).set({
+          latitude: latitude || null,
       longitude: longitude || null,
       timestamp: Date.now(),
     });
@@ -247,144 +238,126 @@ exports.flatmateLogin = async (req, res) => {
     res.status(500).json({ message: 'Server error.' });
   }
 };
-
-// const COOKIE_NAME = 'session';
-// const SESSION_EXPIRES = 60 * 60 * 24 * 7 * 1000; // 7 days
-//isko jab comment out karna to reponse me role: userRole, jarur bhejna
-// exports.flatmateLogin = async (req, res) => {
-//   // 1. req.body से 'captchaToken' निकालें
-//   const { email, password, latitude, longitude, captchaToken } = req.body;
-
-//   if (!email || !password) {
-//     return res.status(400).json({ message: 'Email and password are required.' });
-//   }
-
-//   // 🛡️ -------------------- GOOGLE RECAPTCHA VERIFICATION START -------------------- 🛡️
-  
-//   const GOOGLE_SECRET_KEY = process.env.GOOGLE_RECAPTCHA_SECRET_KEY;
-  
-//   if (!GOOGLE_SECRET_KEY) {
-//       // यह केवल चेतावनी है, उत्पादन (production) में यह हमेशा सेट होना चाहिए
-//       console.warn("SECURITY WARNING: GOOGLE_RECAPTCHA_SECRET_KEY is not set. Skipping reCAPTCHA verification.");
-      
-//   } else if (!captchaToken) {
-//       // यदि सीक्रेट की (Secret Key) सेट है, लेकिन क्लाइंट से टोकन नहीं आया, तो फ़ेल करें
-//       console.error('reCAPTCHA token missing from request.');
-//       return res.status(401).json({ message: 'Security check failed. Please refresh and try again.' });
-//   } else {
-//       try {
-//           const verificationUrl = `https://www.google.com/recaptcha/api/siteverify`;
-          
-//           // reCAPTCHA API को POST अनुरोध भेजें
-//           const googleRes = await axios.post(verificationUrl, null, {
-//               params: {
-//                   secret: GOOGLE_SECRET_KEY,
-//                   response: captchaToken,
-//                   // optional: remoteip: req.ip, // IP address सत्यापन सटीकता में सुधार कर सकता है
-//               }
-//           });
-          
-//           const googleData = googleRes.data;
-
-//           if (!googleData.success) {
-//               // 🛑 सत्यापन विफल होने पर लॉगिन लॉजिक को रोकें
-//               console.error('reCAPTCHA verification failed. Errors:', googleData['error-codes']);
-//               // हमलावर को विफलता का सटीक कारण जानने से रोकने के लिए सामान्य त्रुटि संदेश
-//               return res.status(401).json({ message: 'Login failed. Security check failed.' });
-//           }
-
-//           console.log('reCAPTCHA verification successful. Proceeding with Firebase login.');
-
-//       } catch (captchaError) {
-//           // यदि Google API से संपर्क करने में कोई समस्या आती है
-//           console.error('Error contacting Google reCAPTCHA API:', captchaError.message);
-//           return res.status(500).json({ message: 'Server error during security check.' });
-//       }
-//   }
-//   // 🛡️ -------------------- GOOGLE RECAPTCHA VERIFICATION END -------------------- 🛡️
-
-//   try {
-//     // 3. (Original Logic) Firebase REST API sign-in
-//     const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
-//     const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
-
-//     const signInResponse = await axios.post(signInUrl, {
-//       email,
-//       password,
-//       returnSecureToken: true
-//     });
-
-//     const idToken = signInResponse.data.idToken;
-//     const uid = signInResponse.data.localId;
-
-//     // Create session cookie
-//     const sessionCookie = await firebaseAdmin.auth().createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
-
-//     // Set HttpOnly cookie
-//     res.cookie(COOKIE_NAME, sessionCookie, {
-//       httpOnly: true,
-//       secure: process.env.NODE_ENV === 'production',
-//       sameSite: 'lax',
-//       maxAge: SESSION_EXPIRES,
-//       path: '/',
-//     });
-
-//     // Save last login location in RTDB
-//     await db.ref(`flatmate/users/${uid}/lastLogin`).set({
-//       latitude: latitude || null,
-//       longitude: longitude || null,
-//       timestamp: Date.now(),
-//     });
-
-//     res.status(200).json({
-//       user: { uid, email, name: signInResponse.data.displayName || '' ,role: userRole,}
-//     });
-
-//   } catch (error) {
-//     console.error('Login error:', error.response?.data || error.message || error);
-//     if (error.response?.data?.error?.message === 'EMAIL_NOT_FOUND' ||
-//         error.response?.data?.error?.message === 'INVALID_PASSWORD') {
-//       return res.status(401).json({ message: 'Invalid credentials.' });
-//     }
-//     res.status(500).json({ message: 'Server error.' });
-//   }
-// };
-
-// ----------------------------------------------------------
-// 🟢 getCurrentUser
-// ----------------------------------------------------------
 exports.getCurrentUser = async (req, res) => {
+  const appName = req.query.appName || 'flatmate';
+  const { auth, db } = getFirebaseInstance(appName);
   const sessionCookie = req.cookies?.session;
   if (!sessionCookie) return res.status(401).json({ message: "Unauthorized. No session found." });
 
   try {
-    const decodedClaims = await require('firebase-admin').auth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
     const uid = decodedClaims.uid;
 
     // RTDB se user data fetch
-    const userSnapshot = await require('../config/firebaseConfig.js').db.ref(`/flatmate/users/${uid}`).once('value');
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+    const userSnapshot = await db.ref(`/${rootNode}/users/${uid}`).once('value');
     if (!userSnapshot.exists()) return res.status(404).json({ message: "User not found." });
 
     const userData = userSnapshot.val();
-    res.status(200).json({ user: userData });
+
+
+    // 🚀 MAGIC: Firebase Client ke liye token banayein
+    const firebaseToken = await auth.createCustomToken(uid);
+   res.status(200).json({ 
+      user: { uid, ...userData }, 
+      firebaseToken // Ye token frontend ko bhejein
+    });
   } catch (error) {
     console.error("Error fetching current user:", error);
     res.status(401).json({ message: "Invalid or expired session." });
   }
 };
 
+exports.getFlatmateProfile = async (req, res) => {
+    const { uid } = req.params;
+    const appName = req.query.appName || 'flatmate';
+    const { db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+
+    try {
+        const userSnapshot = await db.ref(`${rootNode}/users/${uid}`).once('value');
+        if (!userSnapshot.exists()) {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const rawData = userSnapshot.val();
+        
+        // --- Frontend Stats Logic Implementation ---
+        const userProperties = rawData.property || {};
+        const propertyEntries = Object.values(userProperties);
+
+        let stats = {
+            totalProperties: propertyEntries.length,
+            totalRent: 0,
+            totalFlatmate: 0,
+            totalSell: 0
+        };
+
+        propertyEntries.forEach(item => {
+            const goal = item.listing_goal?.toLowerCase();
+            if (goal === 'rent') stats.totalRent++;
+            else if (goal === 'flatmate') stats.totalFlatmate++;
+            else if (goal === 'sell' || goal === 'sale') stats.totalSell++;
+        });
+
+        // Exact response matching your frontend expectation
+        res.status(200).json({
+            uid: uid,
+            name: rawData.name || '',
+            email: rawData.email || '',
+            phoneNumber: rawData.phoneNumber || rawData.phone || '',
+            city: rawData.city || '',
+            role: rawData.role || 'User',
+            approved: rawData.approved || false,
+            createdAt: rawData.createdAt || null,
+            totalProperties: stats.totalProperties,
+            totalRent: stats.totalRent,
+            totalFlatmate: stats.totalFlatmate,
+            myProperties: propertyEntries // Array of properties
+        });
+
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
 
 // ----------------------------------------------------------
-// 🟢 logout (already defined above, just ensure cookie clear)
+// 🟢 updateFlatmateProfile (NEW) - Optimized update
 // ----------------------------------------------------------
+exports.updateFlatmateProfile = async (req, res) => {
+    // Middleware adds user to req (from session)
+    const uid = req.user.uid; 
+    const appName = req.body.appName || 'flatmate';
+    const { db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+    
+    const { name, phoneNumber, city } = req.body;
 
-// ----------------------------------------------------------
-// 🟢 logout (CONTROLLER)
-// ----------------------------------------------------------
-// ----------------------------------------------------------
+    try {
+        const userRef = db.ref(`${rootNode}/users/${uid}`);
+        
+        const filteredData = {
+            name: sanitizeString(name) || "",
+            phoneNumber: sanitizeString(phoneNumber) || "",
+            city: sanitizeString(city) || "",
+            lastProfileUpdate: Date.now()
+        };
+
+        // Update specific fields without overwriting 'property' node
+        await userRef.update(filteredData);
+        
+        res.status(200).json({ success: true, message: "Profile updated successfully" });
+    } catch (error) {
+        console.error("Profile Update Error:", error);
+        res.status(500).json({ message: "Update failed", error: error.message });
+    }
+};
+
 // 🟢 flatmateLogout (CONTROLLER)
 // ----------------------------------------------------------
 exports.flatmateLogout = async (req, res) => {
+    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     try {
         const sessionCookie = req.cookies?.session;
 
@@ -393,10 +366,8 @@ exports.flatmateLogout = async (req, res) => {
         }
 
         // Session cookie verify
-        const decoded = await firebaseAdmin.auth().verifySessionCookie(sessionCookie, true);
-
-        // Firebase refresh tokens revoke → ensures logout from everywhere
-        await firebaseAdmin.auth().revokeRefreshTokens(decoded.uid);
+       const decoded = await auth.verifySessionCookie(sessionCookie, true);
+       await auth.revokeRefreshTokens(decoded.uid);
 
         // Clear session cookie
         res.clearCookie("session", {
@@ -422,10 +393,9 @@ exports.flatmateLogout = async (req, res) => {
 
 
 // ----------------------------------------------------------
-// 🟢 flatmateForgotPassword (CONTROLLER)
-// ----------------------------------------------------------
 // 🟢 Step 1: Send Reset OTP
 exports.flatmateForgotPassword = async (req, res) => {
+    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
     const resetData = req.body;
     try {
         const success = await flatmateUserService.sendPasswordResetEmail(resetData);
@@ -443,6 +413,9 @@ exports.flatmateForgotPassword = async (req, res) => {
 
 // 🟢 Step 2: NEW CONTROLLER - Verify OTP & Change Password
 exports.flatmateVerifyAndResetPassword = async (req, res) => {
+    const appName = req.body.appName || 'flatmate';
+    const { auth, db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
     // 1. input se 'onlyVerify' flag nikalein jo humne frontend se bheja hai
     const { email, otp, newPassword, onlyVerify } = req.body;
 
@@ -454,37 +427,27 @@ exports.flatmateVerifyAndResetPassword = async (req, res) => {
     }
 
     try {
-        const emailKey = email.replace(/\./g, '_');
-        const otpRef = db.ref(`/flatmate/password_resets/${emailKey}`);
+       const emailKey = email.replace(/\./g, '_');
+        const otpRef = db.ref(`/${rootNode}/password_resets/${emailKey}`);
         const snapshot = await otpRef.once('value');
         const data = snapshot.val();
 
-        // 1. Check if OTP exists and matches
         if (!data || data.otp !== otp) {
             return res.status(400).json({ message: "Invalid OTP code." });
         }
-
         // 2. Check if expired
         if (Date.now() > data.expiresAt) {
             await otpRef.remove();
-            return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+            return res.status(400).json({ message: "OTP has expired." });
         }
 
-        // --- ✅ NEW LOGIC: AGAR SIRF VERIFY KARNA HAI ---
         if (onlyVerify) {
-            return res.status(200).json({ 
-                message: "OTP Verified! You can now change your password.",
-                success: true 
-            });
+            return res.status(200).json({ message: "OTP Verified!", success: true });
         }
 
-        // 3. Update Password (Tabhi chalega jab onlyVerify: false ya missing ho)
+        // 🚀 Password Update logic check
         const userRecord = await auth.getUserByEmail(email);
-        await auth.updateUser(userRecord.uid, {
-            password: newPassword
-        });
-
-        // 4. Cleanup: Success ke baad delete karein
+        await auth.updateUser(userRecord.uid, { password: newPassword });
         await otpRef.remove();
 
         res.status(200).json({ message: "Password updated successfully! Please login." });
@@ -505,45 +468,40 @@ const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 const REDIRECT_URI = process.env.REDIRECT_URI; 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 
-const findOrCreateFlatmateUser = async (googleProfile) => {
+// Function signature mein appName add karein
+const findOrCreateFlatmateUser = async (googleProfile, appName = 'flatmate') => {
+    // req.body use nahi karna, direct appName use karna hai
+    const { auth, db } = getFirebaseInstance(appName); 
+    const rootPath = appName === 'flatmate' ? 'flatmate' : appName;
     let firebaseUser;
     
     try {
-        // 1. Check if user exists in Firebase Auth by email
-        firebaseUser = await firebaseAdmin.auth().getUserByEmail(googleProfile.email);
-        
+        firebaseUser = await auth.getUserByEmail(googleProfile.email);
     } catch (error) {
-        // User not found (auth/user-not-found), create a new one
         if (error.code === 'auth/user-not-found') {
-            console.log("Creating new Firebase user via Google SSO...");
-            firebaseUser = await firebaseAdmin.auth().createUser({
+            firebaseUser = await auth.createUser({
                 email: googleProfile.email,
                 displayName: googleProfile.name,
                 emailVerified: googleProfile.email_verified,
             });
-
-            // 2. Initialize RTDB profile data (Essential for your app logic)
-            await db.ref(`flatmate/users/${firebaseUser.uid}`).set({
+            const initialRole = appName === 'flatmate' ? 'Tenant' : 'Member';
+            // Path ko bhi dynamic rakhein: appName === 'flatmate' ? 'flatmate' : 'dating'
+            await db.ref(`${rootPath}/users/${firebaseUser.uid}`).set({
                 uid: firebaseUser.uid,
                 email: firebaseUser.email,
                 name: firebaseUser.displayName || googleProfile.name,
-                city: '', // Default fields for profile completion check
+                role: initialRole,
+                city: '', 
                 phoneNumber: '', 
             });
         } else {
-            // Re-throw other errors (e.g., network, server issues)
             throw error;
         }
     }
 
-    // 3. Fetch RTDB data to ensure we return a complete user object
-    const userSnapshot = await db.ref(`flatmate/users/${firebaseUser.uid}`).once('value');
+    const userSnapshot = await db.ref(`${rootPath}/users/${firebaseUser.uid}`).once('value');
     
-    return {
-        ...userSnapshot.val(), 
-        uid: firebaseUser.uid, 
-        email: firebaseUser.email, 
-    };
+    return { ...userSnapshot.val(), uid: firebaseUser.uid, email: firebaseUser.email };
 };
 
 
@@ -552,6 +510,8 @@ const findOrCreateFlatmateUser = async (googleProfile) => {
 // Route: GET /auth/google/callback
 // ----------------------------------------------------------
 exports.googleSSOCallback = async (req, res) => {
+    const appName = req.query.state || 'flatmate';
+    const { auth, db } = getFirebaseInstance(appName);
     const { code } = req.query;
 
     if (!code) {
@@ -582,11 +542,11 @@ exports.googleSSOCallback = async (req, res) => {
         }
         
         // 4. Find or create the user in Firebase Auth & RTDB
-        const user = await findOrCreateFlatmateUser(googleProfile);
+        const user = await findOrCreateFlatmateUser(googleProfile, appName);
         const uid = user.uid;
 
         // 5. Create a Custom Token and exchange it for a Firebase ID Token (required for session cookies)
-        const customToken = await firebaseAdmin.auth().createCustomToken(uid);
+        const customToken = await auth.createCustomToken(user.uid);
         
         const tokenResponse = await axios.post(
             `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`,
@@ -598,8 +558,8 @@ exports.googleSSOCallback = async (req, res) => {
         const idToken = tokenResponse.data.idToken;
 
         // 6. Create session cookie
-        const sessionCookie = await firebaseAdmin.auth().createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
-        
+        const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn: SESSION_EXPIRES });
+
         // 7. Set HttpOnly cookie
         res.cookie(COOKIE_NAME, sessionCookie, {
             httpOnly: true,

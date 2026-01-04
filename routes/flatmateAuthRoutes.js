@@ -11,19 +11,13 @@ const {
   flatmateCompleteProfile,
   flatmateLogout,
   getCurrentUser,
+  updateFlatmateProfile,
+  getFlatmateProfile,
   googleSSOCallback
 } = require("../controllers/flatmateAuthController.js");
 
-const { 
-    flatmateListing,
-    fetchAllListings,     
-    fetchSingleListing,   
-    fetchUserListings,    
-    updateListing,        
-    deleteListing         
-} = require("../controllers/flatmateListingController.js");
 
-const firebaseAuthMiddleware = require('../services/firebaseAuthMiddleware');
+const firebaseAuthMiddleware = require('../middleware/firebaseAuthMiddleware.js');
 const rateLimit = require("express-rate-limit"); //To stop brute-force or account-creation bots at Login/Signup/OTP endpoints 
 
 const firewall = require("../middleware/firewall.js");
@@ -61,36 +55,8 @@ router.post(
     firewall, 
     flatmateVerifyAndResetPassword
 );
-// ----------------------------------------------------
-// 🔐 Protected Routes (Auth & Listing Management)
-// ----------------------------------------------------
-
-// 1. ✅ FIX: यूज़र की अपनी सभी लिस्टिंग्स फेच करें (MyListingsScreen के लिए)
-// यह विशिष्ट राउट है, इसे डायनामिक राउट से पहले होना चाहिए।
-router.get("/listing/my-listings", firebaseAuthMiddleware.verifyToken, fetchUserListings);
-
-// नई लिस्टिंग पोस्ट करें
-router.post("/listing", firebaseAuthMiddleware.verifyToken, flatmateListing);
-
-// ------------------------------------
-// 🏠 Public Listing Routes (Read-only)
-// ------------------------------------
-// सभी लिस्टिंग्स को फेच करें (होमस्क्रीन के लिए)
-router.post("/listing/all", fetchAllListings);
-// यह डायनामिक राउट अब my-listings के बाद आता है।
-router.get("/listing/:listingId", fetchSingleListing);
-
-// ----------------------------------------------------
-// 🔐 Remaining Protected Routes
-// ----------------------------------------------------
-// लिस्टिंग को अपडेट करें
-router.put("/listing/update/:listingId", firebaseAuthMiddleware.verifyToken, updateListing);
-// लिस्टिंग को डिलीट करें
-router.delete("/listing/delete/:listingId", firebaseAuthMiddleware.verifyToken, deleteListing);
-// ------------------------
-// Protected User Auth Routes
-// ------------------------
 router.get("/me", firebaseAuthMiddleware.verifyToken, getCurrentUser);
-
+router.get("/profile/:uid", firebaseAuthMiddleware.verifyToken, getFlatmateProfile);
+router.patch("/profile/update", firebaseAuthMiddleware.verifyToken, updateFlatmateProfile);
 
 module.exports = router;

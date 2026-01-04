@@ -13,6 +13,7 @@ class FlatmateSignupModel {
         this.email = data.email;
         this.password = data.password;
         this.name = data.username;
+        this.appName = data.appName || 'flatmate';
 
         this.primaryIntent = data.primaryIntent || null;
         this.secondaryIntent = data.secondaryIntent || null;
@@ -23,8 +24,8 @@ class FlatmateSignupModel {
         this.createdAt = new Date().toISOString();
         this.role = validRoles.includes(this.primaryIntent) 
             ? this.primaryIntent 
-            : 'Tenant';
-        this.planName = `${this.primaryIntent}: ${this.secondaryIntent}`;
+            : (this.appName === 'flatmate' ? 'Tenant' : 'Member'); // Fallback logic
+        this.planName = `${this.primaryIntent || 'Free'}: ${this.secondaryIntent || 'Standard'}`;
         this.city = null;
         this.phoneNumber = null;
         this.signupStage =3; 
@@ -44,6 +45,7 @@ class FlatmateSignupModel {
             createdAt: this.createdAt,
             city: this.city,
             phoneNumber: this.phoneNumber,
+            appName: this.appName
         };
     }
 }
@@ -58,7 +60,8 @@ class FlatmateProfileModel {
         if (!data.phoneNumber) throw new Error("Phone Number is required to complete the profile.");
         if (!data.primaryIntent) throw new Error("Primary Intent is required to complete the profile.");
         if (!data.secondaryIntent) throw new Error("Secondary Intent is required to complete the profile.");
-
+        
+        this.appName = data.appName || 'flatmate';
         this.city = data.city;
         this.phoneNumber = data.phoneNumber;
         this.primaryIntent = data.primaryIntent;
@@ -71,9 +74,10 @@ class FlatmateProfileModel {
         
         // --- Derived/Updated Fields ---
         this.planName = `${this.primaryIntent}: ${this.secondaryIntent}`;
-        this.role = ['Tenant', 'Owner', 'Buyer', 'Seller'].includes(this.primaryIntent) 
+        const validRoles = ['Tenant', 'Owner', 'Buyer', 'Seller', 'Member', 'VIP'];
+        this.role = validRoles.includes(this.primaryIntent) 
             ? this.primaryIntent 
-            : 'Tenant';
+            : (this.appName === 'flatmate' ? 'Tenant' : 'Member');
         this.approved = true;
         this.lastProfileUpdate = new Date().toISOString();
         this.signupStage = 2;
@@ -118,7 +122,7 @@ class FlatmateUserModel {
         this.uid = dbData.uid;
         this.email = dbData.email;
         this.name = dbData.name || '';
-        this.role = dbData.role || 'Tenant';
+        this.role = dbData.role || (dbData.appName === 'flatmate' ? 'Tenant' : 'Member');
         this.approved = !!dbData.approved;
         this.createdAt = dbData.createdAt;
 
@@ -171,12 +175,12 @@ class FlatmateUserModel {
 
 class ForgotPasswordModel {
     constructor(data) {
-        if (!data.email) throw new Error("Email is required for password reset.");
+        if (!data.email) throw new Error("Email is required.");
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(data.email)) {
-             throw new Error("Invalid email format.");
-        }
+        if (!emailRegex.test(data.email)) throw new Error("Invalid email format.");
+        
         this.email = data.email;
+        this.appName = data.appName || 'flatmate'; // 🚀 OTP path identify karne ke liye
     }
 }
 module.exports = {

@@ -1,6 +1,7 @@
 // services/flatmateUserService.js
 
-const { db, auth } = require('../config/firebaseConfig.js');
+// 🚨 MODIFIED: Direct imports removed to support multi-app instances
+const { getFirebaseInstance } = require('../config/firebaseConfig.js');
 const sendEmail = require("../mailer.js");
 const { resetPasswordTemplate } = require("../templates/resetPasswordTemplate.js");
 const { 
@@ -14,10 +15,12 @@ const sanitizeString = (input) => {
     if (typeof input !== 'string') return input;
     return input.replace(/</g, "&lt;").replace(/>/g, "&gt;").trim(); 
 };
+
 // ----------------------------------------------------
 // Helper: Update Custom Claims
 // ----------------------------------------------------
-const updateCustomClaims = async (uid, claims) => {
+// 🚨 MODIFIED: Now accepts 'auth' instance as first parameter
+const updateCustomClaims = async (auth, uid, claims) => {
     try {
         const user = await auth.getUser(uid);
         const existingClaims = user.customClaims || {};
@@ -35,6 +38,11 @@ const updateCustomClaims = async (uid, claims) => {
 // 🟢 SERVICE FUNCTION 1: Create User (Signup)
 // ----------------------------------------------------
 exports.createFlatmateUser = async (signupData) => {
+    // 🚀 NEW: Dynamic Instance Fetching
+    const appName = signupData.appName || 'flatmate';
+    const { auth, db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+
     signupData.email = sanitizeString(signupData.email);
     signupData.name = sanitizeString(signupData.name);
     const userModel = new FlatmateSignupModel(signupData); 
@@ -47,7 +55,8 @@ exports.createFlatmateUser = async (signupData) => {
     const uid = userRecord.uid;
     
     const rtdbData = userModel.toInitialRTDBData(uid);
-    await db.ref(`/flatmate/users/${uid}`).set(rtdbData);
+    // 🚨 MODIFIED: Dynamic Root Path
+    await db.ref(`/${rootNode}/users/${uid}`).set(rtdbData);
 
     const initialClaims = {
         uid: uid,
@@ -57,12 +66,32 @@ exports.createFlatmateUser = async (signupData) => {
         name: userModel.name,
         signupStage: userModel.signupStage, 
     };
-    await updateCustomClaims(uid, initialClaims);
+    // 🚨 MODIFIED: Passing auth instance
+    await updateCustomClaims(auth, uid, initialClaims);
 
-    const customToken = await auth.createCustomToken(uid);
+    // C. 🚨 FIX: ID Token generate karein (REST API use karke)
+    const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
 
-    return { uid, userData: rtdbData, customToken };
+    const response = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify({
+            email: userModel.email,
+            password: userModel.password,
+            returnSecureToken: true
+        }),
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+    const authData = await response.json();
+
+    if (!authData.idToken) {
+        throw new Error("Failed to generate ID Token: " + (authData.error?.message || "Unknown error"));
+    }
+
+    return { uid, userData: rtdbData, idToken: authData.idToken };
 };
+
 /** Generates a 6-digit numeric OTP. */
 const generateOtp = () => {
     return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
@@ -70,16 +99,16 @@ const generateOtp = () => {
 
 /** Sanitizes email for RTDB key. */
 const getEmailKey = (email) => {
-    // Base64 encoding to sanitize email for RTDB key
     return Buffer.from(email).toString('base64').replace(/=/g, ''); 
 };
 
 /** Stores the OTP in RTDB with a 60-second expiry. */
-exports.storeOtp = async (email, otp) => {
+// 🚨 MODIFIED: Added appName support
+exports.storeOtp = async (email, otp, appName = 'flatmate') => {
+    const { db } = getFirebaseInstance(appName);
     const expiryTime = Date.now() + 600000;
     const emailKey = getEmailKey(email);
 
-    // Using a temporary location for unverified emails
     await db.ref(`temp/otps/${emailKey}`).set({
         otp,
         expiry: expiryTime,
@@ -88,7 +117,9 @@ exports.storeOtp = async (email, otp) => {
 };
 
 /** Validates the provided OTP against the stored one. */
-exports.validateOtp = async (email, otp) => {
+// 🚨 MODIFIED: Added appName support
+exports.validateOtp = async (email, otp, appName = 'flatmate') => {
+    const { db } = getFirebaseInstance(appName);
     const emailKey = getEmailKey(email);
     const otpRef = db.ref(`temp/otps/${emailKey}`);
     const snapshot = await otpRef.once('value');
@@ -98,39 +129,36 @@ exports.validateOtp = async (email, otp) => {
         return { success: false, message: "OTP not found or expired. Please resend." };
     }
 
-    // Check expiry
     if (storedData.expiry < Date.now()) {
-        await otpRef.remove(); // Clean up expired OTP
+        await otpRef.remove(); 
         return { success: false, message: "OTP has expired. Please resend." };
     }
 
-    // Compare OTP
     if (storedData.otp !== otp) {
         return { success: false, message: "Invalid OTP provided." };
     }
 
-    // Success: OTP delete kar dein taaki dobara use na ho sake (Single use)
     await otpRef.remove();
     return { success: true, message: "OTP verified successfully." };
 };
+
 /** Sends the OTP via email using the mailer utility. */
-exports.sendOtpEmail = async (email) => {
+// 🚨 MODIFIED: Added appName support
+exports.sendOtpEmail = async (email, appName = 'flatmate') => {
     const otp = generateOtp();
     const otpArray = otp.toString().split("");
     const subject = `FYF: ${otp} is your verification code`;
-    const html = `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; line-height: 1.5;">
-        <h2 style="color: #4c51bf;">Account Verification</h2>
-        <p>Hello,</p>
-        <p>Your OTP for <strong>FindYourFlatMates</strong> is:</p>
-        <div style="background: #f4f4f4; padding: 15px; font-size: 24px; font-weight: bold; text-align: center; border-radius: 8px; border: 1px solid #ddd; letter-spacing: 5px;">
-            ${otp}
-        </div>
-        <p>This code is valid for 10 minutes. Please do not share this OTP with anyone.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 11px; color: #999;">If you didn't request this, please ignore this email.</p>
-    </div>
-    `;
+    const html = `${otp}`;
+
+    const emailSent = await sendEmail({ to: email, subject, html , otp });
+    
+    if (emailSent) {
+        // 🚨 MODIFIED: Passing appName to storeOtp
+        await exports.storeOtp(email, otp, appName);
+        return { success: true, otp };
+    }
+    return { success: false };
+};
 
     // const html = `
     // <div style="background-color: #f0f4f8; padding: 40px 10px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
@@ -173,28 +201,21 @@ exports.sendOtpEmail = async (email) => {
     // </div>
     // `;
 
-    const emailSent = await sendEmail({ to: email, subject, html , otp });
-    
-    if (emailSent) {
-        await exports.storeOtp(email, otp);
-        return { success: true, otp };
-    }
-    return { success: false };
-};
-
 // ----------------------------------------------------
 // 🟢 SERVICE FUNCTION 2: Complete Profile
 // ----------------------------------------------------
 exports.completeFlatmateProfile = async (uid, profileData) => {
+    // 🚀 NEW: Dynamic Instance Fetching
+    const appName = profileData.appName || 'flatmate';
+    const { auth, db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+
     if (profileData.city) {
         profileData.city = sanitizeString(profileData.city);
     }
-    // 💡 FIX: phone number sanitization (if stored as string)
     if (profileData.phoneNumber) {
-        // Validation (e.g., regex) is best, but sanitization as a fallback is good practice
         profileData.phoneNumber = sanitizeString(profileData.phoneNumber);
     }
-    // 💡 FIX: Intents must be sanitized to prevent injection in derived fields
     if (profileData.primaryIntent) {
         profileData.primaryIntent = sanitizeString(profileData.primaryIntent);
     }
@@ -204,10 +225,12 @@ exports.completeFlatmateProfile = async (uid, profileData) => {
     const profileModel = new FlatmateProfileModel(profileData);
 
     const updateData = profileModel.toRTDBUpdateData();
-    await db.ref(`/flatmate/users/${uid}`).update(updateData);
+    // 🚨 MODIFIED: Dynamic Root Path
+    await db.ref(`/${rootNode}/users/${uid}`).update(updateData);
     
     const finalClaims = profileModel.toCustomClaimsUpdate();
-    await updateCustomClaims(uid, finalClaims);
+    // 🚨 MODIFIED: Passing auth instance
+    await updateCustomClaims(auth, uid, finalClaims);
     
     return updateData;
 };
@@ -217,11 +240,16 @@ exports.completeFlatmateProfile = async (uid, profileData) => {
 // 🟢 SERVICE FUNCTION 3: Handle User Login
 // ----------------------------------------------------
 exports.handleFlatmateLogin = async (email, locationData) => {
+    // 🚀 NEW: Dynamic Instance Fetching
+    const appName = locationData.appName || 'flatmate';
+    const { auth, db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+
     const sanitizedEmail = sanitizeString(email);
     const searchEmail = sanitizedEmail.trim().toLowerCase();
 
-    // Find user by email from /flatmate/users
-    const usersRef = db.ref("/flatmate/users");
+    // 🚨 MODIFIED: Dynamic Root Path
+    const usersRef = db.ref(`/${rootNode}/users`);
     const snapshot = await usersRef.once("value");
 
     if (!snapshot.exists()) throw new Error("Database is empty or error fetching users.");
@@ -240,9 +268,8 @@ exports.handleFlatmateLogin = async (email, locationData) => {
     if (!userRecord) throw new Error("User not found with this email.");
 
     const { uid, data: userData } = userRecord;
-    const userModel = new FlatmateUserModel(userData); // Model use 1: Validate fetched data
+    const userModel = new FlatmateUserModel(userData); 
 
-    // Update Location & IP
     const { ipAddress, latitude, longitude } = locationData;
     const updateData = {};
     if (ipAddress) updateData.ipAddress = ipAddress;
@@ -253,24 +280,24 @@ exports.handleFlatmateLogin = async (email, locationData) => {
     }
 
     if (Object.keys(updateData).length > 0) {
-        await db.ref(`/flatmate/users/${uid}`).update(updateData);
-        // Update model properties for consistency
+        // 🚨 MODIFIED: Dynamic Root Path
+        await db.ref(`/${rootNode}/users/${uid}`).update(updateData);
         userModel.ipAddress = updateData.ipAddress || userModel.ipAddress;
         userModel.latitude = updateData.latitude || userModel.latitude;
         userModel.longitude = updateData.longitude || userModel.longitude;
         userModel.lastLogin = updateData.lastLogin || userModel.lastLogin;
     }
 
-    // Update Firebase Custom Claims
-    const claimsData = userModel.toCustomClaims(); // Model use 2: Get Custom Claims data
-    await updateCustomClaims(uid, claimsData);
+    const claimsData = userModel.toCustomClaims(); 
+    // 🚨 MODIFIED: Passing auth instance
+    await updateCustomClaims(auth, uid, claimsData);
 
     const customToken = await auth.createCustomToken(uid);
 
     return { 
         uid, 
         customToken, 
-        sessionData: userModel.toSessionData(), // Model use 3: Data ready for Session
+        sessionData: userModel.toSessionData(), 
         locationTracked: !!(latitude && longitude)
     };
 };
@@ -279,25 +306,27 @@ exports.handleFlatmateLogin = async (email, locationData) => {
 // ----------------------------------------------------
 // 🟢 SERVICE FUNCTION 4: Send Forgot Password Email
 // ----------------------------------------------------
-// 🟢 SERVICE FUNCTION: Send OTP for Password Reset
 exports.sendPasswordResetEmail = async (resetData) => {
+    // 🚀 NEW: Dynamic Instance Fetching
+    const appName = resetData.appName || 'flatmate';
+    const { db } = getFirebaseInstance(appName);
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+
     resetData.email = sanitizeString(resetData.email);
     const resetModel = new ForgotPasswordModel(resetData);
     const email = resetModel.email;
 
-    // 1. Generate 6-Digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailKey = email.replace(/\./g, '_'); // Firebase key sanitize
+    const emailKey = email.replace(/\./g, '_'); 
 
-    // 2. Save OTP to Realtime Database with 10-min expiry
-    await db.ref(`/flatmate/password_resets/${emailKey}`).set({
+    // 🚨 MODIFIED: Dynamic Root Path
+    await db.ref(`/${rootNode}/password_resets/${emailKey}`).set({
         otp: otp,
-        expiresAt: Date.now() + 600000, // 10 minutes
+        expiresAt: Date.now() + 600000, 
         verified: false
     });
 
-    // 3. Prepare Template and Send Email
-    const html = resetPasswordTemplate(otp); // Template ab OTP lega
+    const html = resetPasswordTemplate(otp); 
     const sent = await sendEmail({
         to: email,
         subject: `${otp} is your Reset Code - Find Your Flatmate`,

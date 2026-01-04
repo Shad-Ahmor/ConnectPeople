@@ -1,118 +1,140 @@
 const admin = require('firebase-admin');
-// const retry = require('retry'); // ❌ Removed
-// const operation = retry.operation(); // ❌ Removed
 const { decryptedData } = require('../utils/decryptUtils');
 
-let initializedApp = null;
-
-const serviceAccount = {
-  type: process.env.FIREBASE_TYPE,
-  project_id: process.env.FIREBASE_PROJECT_ID,
-  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-  private_key: process.env.FIREBASE_PRIVATE_KEY,
-  client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  client_id: process.env.FIREBASE_CLIENT_ID,
-  auth_uri: process.env.FIREBASE_AUTH_URI,
-  token_uri: process.env.FIREBASE_TOKEN_URI,
-  auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-  client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-  universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
-};
+// Cache for initialized apps to prevent re-initialization
+const apps = {};
 
 // =================================================================
-// 🚀 Firebase Initialization Logic
+// 🚀 Dynamic Decryption & Config Fetcher
 // =================================================================
+const getDecryptedConfig = (envPrefix) => {
+    // Agar prefix empty hai toh purani naming convention use hogi
+    const prefix = envPrefix ? `${envPrefix.toUpperCase()}_` : "FLATMATE_";
+    
+    const serviceAccount = {
+        type: process.env[`${prefix}FIREBASE_TYPE`] || process.env[`${prefix}TYPE`],
+        project_id: process.env[`${prefix}FIREBASE_PROJECT_ID`] || process.env[`${prefix}PROJECT_ID`],
+        private_key_id: process.env[`${prefix}FIREBASE_PRIVATE_KEY_ID`] || process.env[`${prefix}PRIVATE_KEY_ID`],
+        private_key: process.env[`${prefix}FIREBASE_PRIVATE_KEY`] || process.env[`${prefix}PRIVATE_KEY`],
+        client_email: process.env[`${prefix}FIREBASE_CLIENT_EMAIL`] || process.env[`${prefix}CLIENT_EMAIL`],
+        client_id: process.env[`${prefix}FIREBASE_CLIENT_ID`] || process.env[`${prefix}CLIENT_ID`],
+        auth_uri: process.env[`${prefix}FIREBASE_AUTH_URI`] || process.env[`${prefix}AUTH_URI`],
+        token_uri: process.env[`${prefix}FIREBASE_TOKEN_URI`] || process.env[`${prefix}TOKEN_URI`],
+        auth_provider_x509_cert_url: process.env[`${prefix}FIREBASE_AUTH_PROVIDER_X509_CERT_URL`] || process.env[`${prefix}AUTH_PROVIDER_X509_CERT_URL`],
+        client_x509_cert_url: process.env[`${prefix}FIREBASE_CLIENT_X509_CERT_URL`] || process.env[`${prefix}CLIENT_X509_CERT_URL`],
+        universe_domain: process.env[`${prefix}FIREBASE_UNIVERSE_DOMAIN`] || process.env[`${prefix}UNIVERSE_DOMAIN`],
+    };
 
-try {
-  const decryptedServiceAccount = {};
+    const decryptedServiceAccount = {};
 
-  // Loop through the service account fields and decrypt each field
-  for (const key in serviceAccount) {
-    if (serviceAccount.hasOwnProperty(key)) {
-      const encryptedValue = serviceAccount[key];
-      let decryptedValue;
-
-      if (!encryptedValue) {
-         // यदि Env Var missing है (और डिक्रिप्शन की आवश्यकता नहीं है)
-         decryptedValue = encryptedValue;
-
-      } else if (encryptedValue === process.env.SECRET_KEY) {
-        // Case 1 → Exact match → No decrypt
-        decryptedValue = encryptedValue;
-
-      } else if (typeof encryptedValue === "string" && encryptedValue.includes("-----BEGIN PRIVATE KEY-----")) {
-        // Case 2 → Private Key → No decrypt (यदि आपने इसे एन्क्रिप्ट नहीं किया है)
-        // यदि आपने इसे एन्क्रिप्ट किया है, तो इस क्लॉज़ को हटाएँ और इसे डिक्रिप्ट होने दें
-        decryptedValue = encryptedValue;
-
-      } else {
-        // Case 3 → Normal encryption → decrypt
-        // यह यहाँ विफलता का मुख्य बिंदु है (Malformed UTF-8 data)
-        decryptedValue = decryptedData(encryptedValue);
-      }
-
-      // Store the decrypted value
-      decryptedServiceAccount[key] = decryptedValue;
+    for (const key in serviceAccount) {
+        if (serviceAccount.hasOwnProperty(key)) {
+            const val = serviceAccount[key];
+            
+            if (!val) {
+                decryptedServiceAccount[key] = val;
+            } else if (val === process.env.SECRET_KEY || val.includes("-----BEGIN PRIVATE KEY-----")) {
+                // No decryption for raw keys
+                decryptedServiceAccount[key] = val.replace(/\\n/g, '\n');
+            } else {
+                // Try decryption
+                try {
+                    decryptedServiceAccount[key] = decryptedData(val).replace(/\\n/g, '\n');
+                } catch (err) {
+                    // Fallback if already decrypted or malformed
+                    decryptedServiceAccount[key] = val.replace(/\\n/g, '\n');
+                }
+            }
+        }
     }
-  }
-
-  // सुनिश्चित करें कि ऐप पहले से ही initialized न हो
-  if (!admin.apps.length) {
-    initializedApp = admin.initializeApp({
-      credential: admin.credential.cert(decryptedServiceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL,
-    });
-    console.log('Firebase Admin SDK initialized successfully.');
-  } else {
-    // यदि यह पहले से initialized है (जैसे nodemon restarts पर)
-    initializedApp = admin.app(); 
-  }
-
-} catch (err) {
-  console.error('FATAL ERROR: Firebase Initialization Failed due to Decryption/Missing Key.', err);
-  // Initialization विफल होने पर, हम किसी भी firebase export को रोकने के लिए throw करते हैं।
-  throw err; 
-}
-
-
-// =================================================================
-// Export Firebase services (केवल Initialization सफल होने पर)
-// =================================================================
-
-// यह db और auth तभी प्राप्त करेगा जब initializedApp सफलतापूर्वक सेट हो गया हो।
-const db = initializedApp.database();
-const auth = initializedApp.auth();
-
-// Function to set custom user claims
-const setUserRole = async (uid, role, subrole, referredBy) => {
-  try {
-    await auth.setCustomUserClaims(uid, { role, subrole, referredBy });
-    console.log(`Role ${role} and subrole ${subrole} set for user with UID: ${uid}`);
-  } catch (error) {
-    console.error("Error setting custom claims:", error);
-  }
+    return decryptedServiceAccount;
 };
 
+// =================================================================
+// 🚀 Multi-App Instance Getter
+// =================================================================
+const getFirebaseInstance = (appName = 'flatmate') => {
+    const name = appName.toLowerCase();
 
-const getFlatmateUserByEmail = async (email) => {
-  if (!email) return null;
+    // 1. Return existing instance if available
+    if (apps[name]) return apps[name];
 
-  const searchEmail = email.trim().toLowerCase();
-  const usersRef = db.ref('/flatmate/users');
-  const snapshot = await usersRef.once('value'); 
+    try {
+        // Dating app ke liye prefix DATING_ rakhein, Flatmate ke liye empty/FLATMATE_
+        const prefix = name === 'flatmate' ? 'FLATMATE' : name.toUpperCase();
+        const config = getDecryptedConfig(prefix);
+        
+        if (!config.project_id) {
+            throw new Error(`Project ID missing for app: ${name}. Check ${prefix}_PROJECT_ID in .env`);
+        }
 
-  if (!snapshot.exists()) return null;
+        const dbURL = process.env[`${prefix}_DATABASE_URL`] || process.env.FIREBASE_DATABASE_URL;
 
-  const users = snapshot.val();
+        const app = admin.initializeApp({
+            credential: admin.credential.cert(config),
+            databaseURL: dbURL,
+        }, name); // Unique name for each app instance
 
-  for (const uid in users) {
-    if (users[uid].email && users[uid].email.trim().toLowerCase() === searchEmail) {
-      return { uid, data: users[uid] };
+        apps[name] = {
+            db: app.database(),
+            auth: app.auth(),
+            admin: admin
+        };
+
+        console.log(`🔥 Firebase Admin [${name}] initialized successfully.`);
+        return apps[name];
+    } catch (err) {
+        console.error(`❌ Firebase Initialization Failed for [${name}]:`, err.message);
+        throw err;
     }
-  }
-
-  return null;
 };
 
+// =================================================================
+// 🚀 Helper Functions (Updated for Multi-App)
+// =================================================================
 
-module.exports = { db, auth, setUserRole, getFlatmateUserByEmail };
+const setUserRole = async (uid, role, subrole, referredBy, appName = 'flatmate') => {
+    try {
+        const { auth } = getFirebaseInstance(appName);
+        await auth.setCustomUserClaims(uid, { role, subrole, referredBy });
+        console.log(`Role ${role} set in ${appName} for UID: ${uid}`);
+    } catch (error) {
+        console.error(`Error setting custom claims in ${appName}:`, error);
+    }
+};
+
+const getFlatmateUserByEmail = async (email, appName = 'flatmate') => {
+    if (!email) return null;
+    const { db } = getFirebaseInstance(appName);
+
+    const searchEmail = email.trim().toLowerCase();
+    // Path dynamic rakha hai, dating app ke liye '/dating/users' bhi ho sakta hai
+    const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+    const usersRef = db.ref(`/${rootNode}/users`);
+    
+    const snapshot = await usersRef.once('value');
+    if (!snapshot.exists()) return null;
+
+    const users = snapshot.val();
+    for (const uid in users) {
+        if (users[uid].email && users[uid].email.trim().toLowerCase() === searchEmail) {
+            return { uid, data: users[uid] };
+        }
+    }
+    return null;
+};
+
+// =================================================================
+// 🚀 Exports (Backward Compatibility Maintained)
+// =================================================================
+
+// Initialize default app (flatmate) instantly for legacy code
+const defaultInstance = getFirebaseInstance('flatmate');
+
+module.exports = { 
+    getFirebaseInstance, 
+    db: defaultInstance.db, 
+    auth: defaultInstance.auth, 
+    setUserRole, 
+    getFlatmateUserByEmail 
+};

@@ -12,6 +12,11 @@ const app = express();
 app.set('trust proxy', 1);
 const port = process.env.PORT || 5000;
 const flatmateAuthRoutes = require("./routes/flatmateAuthRoutes.js");
+const propertyRoutes = require("./routes/flatmatePropertyRoutes.js");
+const imageRoutes = require("./routes/flatmateImageRoutes.js");
+const notificationRoutes = require("./routes/flatmateNotificationRoutes.js");
+const negotiateRoutes = require("./routes/flatmateNegotiateRoutes.js");
+const chatRoutes = require("./routes/chatRoutes.js");
 
 // --------------------
 // CORS Setup
@@ -26,10 +31,8 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 app.use(cors({
-  origin: (origin, callback) => {
-    callback(null, true); // sabhi origins allow
-  },
-  credentials: true, // Cookies allow karne ke liye zaruri
+  origin: process.env.FRONTEND_ORIGIN, 
+  credentials: true,
 }));
 
 // --------------------
@@ -63,6 +66,11 @@ app.use((req, res, next) => {
 // Flatmate Routes
 // --------------------
 app.use("/flatmate", flatmateAuthRoutes);
+app.use("/property", propertyRoutes);
+app.use("/images", imageRoutes);
+app.use("/notifications", notificationRoutes);
+app.use("/negotiate", negotiateRoutes);
+app.use("/chat", chatRoutes);
 app.get("/health", (req, res) => {
   if (req.headers["x-health-key"] !== process.env.HEALTH_KEY) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -74,4 +82,4 @@ app.get("/health", (req, res) => {
 // --------------------
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-});
+});       
