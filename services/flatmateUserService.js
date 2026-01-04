@@ -4,6 +4,7 @@
 const { getFirebaseInstance } = require('../config/firebaseConfig.js');
 const sendEmail = require("../mailer.js");
 const { resetPasswordTemplate } = require("../templates/resetPasswordTemplate.js");
+
 const { 
     FlatmateSignupModel, 
     FlatmateProfileModel, 
@@ -70,7 +71,7 @@ exports.createFlatmateUser = async (signupData) => {
     await updateCustomClaims(auth, uid, initialClaims);
 
     // C. 🚨 FIX: ID Token generate karein (REST API use karke)
-    const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+    const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
 
     const response = await fetch(url, {

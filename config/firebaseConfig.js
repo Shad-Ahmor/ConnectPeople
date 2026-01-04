@@ -68,7 +68,7 @@ const getFirebaseInstance = (appName = 'flatmate') => {
             throw new Error(`Project ID missing for app: ${name}. Check ${prefix}_PROJECT_ID in .env`);
         }
 
-        const dbURL = process.env[`${prefix}_DATABASE_URL`] || process.env.FIREBASE_DATABASE_URL;
+        const dbURL = process.env[`${prefix}DATABASE_URL`] || process.env.FIREBASE_DATABASE_URL;
 
         const app = admin.initializeApp({
             credential: admin.credential.cert(config),

@@ -184,7 +184,7 @@ exports.flatmateLogin = async (req, res) => {
 
   try {
     // Firebase REST API sign-in
-    const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+    const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
     const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
 
     const signInResponse = await axios.post(signInUrl, {
@@ -464,7 +464,7 @@ exports.flatmateVerifyAndResetPassword = async (req, res) => {
 const { OAuth2Client } = require('google-auth-library');
 const GOOGLE_CLIENT_ID = process.env.OAUTH_CLIENT_ID; 
 const GOOGLE_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+const FIREBASE_API_KEY = process.env.FLATMATE_API_KEY;
 const REDIRECT_URI = process.env.REDIRECT_URI; 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 
@@ -549,7 +549,7 @@ exports.googleSSOCallback = async (req, res) => {
         const customToken = await auth.createCustomToken(user.uid);
         
         const tokenResponse = await axios.post(
-            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`,
+            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FLATMATE_API_KEY}`,
             {
                 token: customToken,
                 returnSecureToken: true
