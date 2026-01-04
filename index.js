@@ -29,7 +29,8 @@ app.use(cors({
   origin: process.env.FRONTEND_ORIGIN?.replace(/\/$/, ""),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
 app.use(helmet({
@@ -58,11 +59,10 @@ app.use((req, res, next) => {
     };
 
     // Local development ke liye secure check relax kar sakte hain agar HTTPS nahi hai
-    if (!isProduction && req.hostname === 'localhost') {
+    if (!isProduction && (req.hostname === 'localhost' || req.hostname === '127.0.0.1' )) {
         cookieConfig.secure = false;
         cookieConfig.sameSite = 'lax';
     }
-
     res.cookie(name, value, cookieConfig);
   };
   next();
