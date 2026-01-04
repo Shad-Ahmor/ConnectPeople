@@ -61,26 +61,32 @@ const getFirebaseInstance = (appName = 'flatmate') => {
 
     try {
         // Dating app ke liye prefix DATING_ rakhein, Flatmate ke liye empty/FLATMATE_
-        const prefix = name === 'flatmate' ? 'FLATMATE' : name.toUpperCase();
+        const prefix = name.toUpperCase(); 
+        
         const config = getDecryptedConfig(prefix);
         
         if (!config.project_id) {
             throw new Error(`Project ID missing for app: ${name}. Check ${prefix}_PROJECT_ID in .env`);
         }
 
-        const dbURL = process.env[`${prefix}DATABASE_URL`] || process.env.FIREBASE_DATABASE_URL;
+        const envDbKey = `${prefix}_DATABASE_URL`;
+        const dbURL = process.env[envDbKey] || process.env.FIREBASE_DATABASE_URL;
 
+        if (!dbURL) {
+            throw new Error(`Can't determine Database URL. ${envDbKey} is not set in .env`);
+        }
+
+ 
         const app = admin.initializeApp({
             credential: admin.credential.cert(config),
             databaseURL: dbURL,
-        }, name); // Unique name for each app instance
+        }, name); 
 
         apps[name] = {
             db: app.database(),
             auth: app.auth(),
             admin: admin
         };
-
         console.log(`🔥 Firebase Admin [${name}] initialized successfully.`);
         return apps[name];
     } catch (err) {
