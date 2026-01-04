@@ -10,6 +10,7 @@ const sanitizeString = (input) => {
     if (typeof input !== 'string') return input;
     return input.replace(/</g, "&lt;").replace(/>/g, "&gt;").trim(); 
 };
+const isProduction = process.env.NODE_ENV === 'production';
 // ----------------------------------------------------------
 // 🟢 flatmateSignup (CONTROLLER)
 // ----------------------------------------------------------
@@ -207,8 +208,8 @@ exports.flatmateLogin = async (req, res) => {
     // Set HttpOnly cookie
     res.cookie(COOKIE_NAME, sessionCookie, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: SESSION_EXPIRES,
       path: '/',
     });
