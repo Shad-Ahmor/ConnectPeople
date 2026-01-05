@@ -55,6 +55,7 @@ app.use((req, res, next) => {
       sameSite: 'none', // Cross-site (Frontend to Backend) ke liye 'none' + secure: true mandatory hai
       path: '/',
       maxAge: 1000 * 60 * 60 * 24 * 7,
+      partitioned: true,
       ...options
     };
 
@@ -62,6 +63,7 @@ app.use((req, res, next) => {
     if (!isProduction && (req.hostname === 'localhost' || req.hostname === '127.0.0.1' )) {
         cookieConfig.secure = false;
         cookieConfig.sameSite = 'lax';
+        delete cookieConfig.partitioned;
     }
     res.cookie(name, value, cookieConfig);
   };
