@@ -96,7 +96,9 @@ exports.flatmateSignup = async (req, res) => {
         const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn });
         // 3. Cookie set karein - Refresh fix ke liye 'session' naam rakhein
         const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
-        res.setCookie(dynamicCookieName, sessionCookie);
+        res.setCookie(dynamicCookieName, sessionCookie, { 
+            maxAge: SESSION_EXPIRES // Ensure maxAge is passed
+        });
 
         // 4. Response bhejien
         res.status(201).json({
@@ -234,7 +236,9 @@ exports.flatmateLogin = async (req, res) => {
 
     // Set HttpOnly cookie
     const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
-    res.setCookie(dynamicCookieName, sessionCookie);
+res.setCookie(dynamicCookieName, sessionCookie, { 
+    maxAge: SESSION_EXPIRES // Ensure maxAge is passed
+});
 
     // Save last login location in RTDB
     await db.ref(`${rootNode}/users/${uid}/lastLogin`).set({
@@ -265,9 +269,11 @@ exports.getCurrentUser = async (req, res) => {
   const appName = req.query.appName || 'flatmate';
   const { auth, db } = getFirebaseInstance(appName);
   
-  // 💡 DYNAMIC COOKIE NAME FIX: Sahi cookie pick karne ke liye
+
+
   const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
-  const sessionCookie = req.cookies?.[dynamicCookieName]; // Pehle yahan hardcoded .session tha
+  const sessionCookie = req.cookies?.[dynamicCookieName];
+
 
   if (!sessionCookie) return res.status(401).json({ message: "Unauthorized. No session found." });
 

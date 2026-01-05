@@ -26,11 +26,12 @@ app.use(globalLimiter);
 
 // 🟢 FIX: CORS setup with explicit allowed headers
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN?.replace(/\/$/, ""),
+  origin: process.env.FRONTEND_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
-  exposedHeaders: ['Set-Cookie']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie', 'x-app-name'], // 'x-app-name' add karein
+  exposedHeaders: ['Set-Cookie'],
+  optionsSuccessStatus: 200
 }));
 
 app.use(helmet({
@@ -51,19 +52,19 @@ app.use((req, res, next) => {
     // 💡 PRO TIP: Server par agar cookie nahi mil rahi, toh domain attribute check karna padta hai
     const cookieConfig = {
       httpOnly: true,
-      secure: true, // Server (HTTPS) par hamesha true hona chahiye login/me sync ke liye
-      sameSite: 'none', // Cross-site (Frontend to Backend) ke liye 'none' + secure: true mandatory hai
       path: '/',
       maxAge: 1000 * 60 * 60 * 24 * 7,
-      partitioned: true,
       ...options
     };
 
     // Local development ke liye secure check relax kar sakte hain agar HTTPS nahi hai
-    if (!isProduction && (req.hostname === 'localhost' || req.hostname === '127.0.0.1' )) {
+    if (req.hostname === 'localhost' || req.hostname === '127.0.0.1') {
         cookieConfig.secure = false;
-        cookieConfig.sameSite = 'lax';
-        delete cookieConfig.partitioned;
+        cookieConfig.sameSite = 'lax'; 
+    } else {
+        cookieConfig.secure = true;
+        cookieConfig.sameSite = 'none';
+        cookieConfig.partitioned = true;
     }
     res.cookie(name, value, cookieConfig);
   };

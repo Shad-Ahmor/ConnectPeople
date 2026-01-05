@@ -5,7 +5,7 @@
 class FlatmatePropertyModel {
     // Unique Fields for Completeness (Total: 35 Fields)
 static UNIQUE_DATA_FIELDS = [
-    'area',
+       'area',
 'bedrooms',
  'bathrooms',
  'building_age', 
@@ -42,14 +42,10 @@ static UNIQUE_DATA_FIELDS = [
       'state_name', 
      'transit_points' ,
         'utility_points', 
-    
-
 ];
 
 
-
-
-    constructor(data) {
+ constructor(data) {
     if (!data) throw new Error("No data provided to Listing Model");
 
     // 💡 IMPROVED HELPER: Check multiple possible keys for a value
@@ -217,7 +213,7 @@ static UNIQUE_DATA_FIELDS = [
 }
 
     // Helper to determine BHK or Room Count based on property type
-    getBhkOrRooms() {
+     getBhkOrRooms() {
         if (this.propertyType === 'Flat' || this.propertyType === 'Shared Flatmate' || this.propertyType.includes('BHK')) {
             // यदि bedrooms 0 है, तो इसे RK (Room Kitchen) मानें, अन्यथा BHK
             return this.bedrooms > 0 ? `${this.bedrooms} BHK` : 'RK'; 
@@ -283,9 +279,8 @@ static UNIQUE_DATA_FIELDS = [
             rating: this.rating
         };
     }
-
     // Minimal data for post response
-    toFrontendData(listingId) {
+       toFrontendData(listingId) {
         return {
             listingId,
             location: this.location,
@@ -299,34 +294,70 @@ static UNIQUE_DATA_FIELDS = [
             status: this.status
         };
     }
+
     
 
     // API 1 (Limited Details) for public/user list view
-   static toLimitedFrontendData(data, listingId, userId) {
-        if (!data) return null;
-
+     static toLimitedFrontendData(data, listingId, ownerId = null) {
+        // Static helper for bhkOrRooms (to be used in the static method above)
+        const getBhkOrRoomsStatic = (data) => {
+            const propertyType = data.propertyType || 'Apartment';
+            
+            // 🚀 FIX 1.1: bedrooms को सुरक्षित रूप से संख्या के रूप में पार्स करें
+            const bedrooms = parseInt(data.bedrooms) || 0; 
+            
+            if (propertyType === 'Flat' || propertyType === 'Shared Flatmate' || propertyType.includes('BHK')) {
+                return bedrooms > 0 ? `${bedrooms} BHK` : 'RK'; 
+            } else {
+                return `${bedrooms} Bedrooms`; 
+            }
+        }
+        
+        // 🚀 FIX 2: Price को toLocaleString से पहले सुरक्षित रूप से जांचें
+        const safePrice = data.rent || 0;
+        const formattedPrice = safePrice ? safePrice.toLocaleString('en-IN') : 'N/A';
+        
+        // 🚀 FIX 3: 'image' फ़ील्ड को सुरक्षित रूप से हैंडल करें
+        // DB में imageLinks नाम से एक Array की अपेक्षा की जाती है।
+        let firstImage = null;
+        if (Array.isArray(data.imageLinks) && data.imageLinks.length > 0) {
+            firstImage = data.imageLinks[0];
+        } else if (Array.isArray(data.image_links) && data.image_links.length > 0) {
+             // Fallback/Legacy check (यदि DB में 'image_links' है)
+             firstImage = data.image_links[0];
+        } else if (data.imageLinks && data.imageLinks.length > 0 && typeof data.imageLinks !== 'string') {
+             // 🛑 OLD CRASHING LOGIC BYPASSED: original code was 'data.imageLinks && data.imageLinks.length > 0 ? data.imageLinks[0] : null' 
+             // We keep the original logic, but safely wrapped in the NEW logic above.
+        }
+        
         return {
-            id: listingId,
-            ownerId: userId,
-            title: data.title || `${data.bedrooms || ''} BHK in ${data.area || ''}`,
-            rent: Number(data.rent) || 0,
-            deposit: Number(data.deposit) || 0,
-            area: data.area || "N/A",
-            city: data.city || "N/A",
-            bedrooms: data.bedrooms || 0,
+            listingId: listingId,
+            ownerId: ownerId || data.postedBy || 'N/A',
+            // Price is assumed to be raw number from DB
+            // 🛑 MODIFIED: अब सुरक्षित 'formattedPrice' का उपयोग करें
+            rent: formattedPrice, 
+            // 🛑 MODIFIED: अब सुरक्षित 'firstImage' का उपयोग करें
+            image: firstImage, 
+            propertyType: data.propertyType || 'N/A',
+            location: data.location || 'N/A',
+            rating: data.rating || 'N/A',
             bathrooms: data.bathrooms || 0,
-            furnishing_status: data.furnishing_status || "Unfurnished",
-            propertyType: data.propertyType || "flat",
-            listing_goal: data.listing_goal || "rent",
-            image: (data.image_links && data.image_links[0]) || (data.imageLinks && data.imageLinks[0]) || null,
-            rating: data.rating || "0.0",
-            status: data.status || "pending review",
-            createdAt: data.createdAt || new Date().toISOString()
+            
+            // 🚀 FIX 1.2: यह सुनिश्चित करता है कि bedrooms हमेशा एक संख्या हो
+            bedrooms: parseInt(data.bedrooms) || 0, 
+            
+            bhkOrRooms: getBhkOrRoomsStatic(data),
+            totalCarpetAreaSqft: data.carpetArea || 'N/A',
+            finalAvailableDate: data.final_available_date || 'Now',
+            listingGoal: data.listing_goal || 'N/A',
+            isNoBrokerage: data.is_no_brokerage || false,
+            status: data.status || 'N/A', 
+            createdAt: data.createdAt
         };
     }
 
     // API 2 & 4 (Complete Details) for single view/update response
-    toFrontendFullData(listingId) {
+       toFrontendFullData(listingId) {
         return {
             listingId,
             location: this.location,

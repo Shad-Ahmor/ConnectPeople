@@ -1,42 +1,47 @@
 // controllers/notificationController.js
 const { db } = require('../config/firebaseConfig.js');
 const { getFirebaseInstance } = require('../config/firebaseConfig.js');
+
 exports.getUnreadCount = async (req, res) => {
-  const uid = req.user?.uid || req.userId;
-  // Middleware se appName uthao
-  const appName = req.appName || req.query.appName || 'flatmate';
+  const uid = req.userId; // Middleware se lo
+  const appName = req.appName || 'flatmate';
   const { db } = getFirebaseInstance(appName); 
   
   if (!uid) return res.status(401).json({ count: 0 });
 
   try {
     const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
+    const userRef = db.ref(`${rootNode}/users/${uid}`);
     
-    // Yahan path mein rootNode use karein
-    const userSnap = await db.ref(`${rootNode}/users/${uid}`).once('value');
+    // Ek hi baar mein poora user object fetch karein (Agar data bada na ho)
+    // Ya fir selective fetch karein
+    const userSnap = await userRef.once('value');
     const userData = userSnap.val() || {};
-    const properties = userData.property || {};
     
     let totalUnread = 0;
+
     const countUnread = (data) => {
       if (!data) return 0;
-      return Object.values(data).filter(item => item.isRead === false || item.isRead === undefined).length;
+      return Object.values(data).filter(item => !item.isRead).length;
     };
 
-    // Paths dynamic karein
-    const visitSnap = await db.ref(`${rootNode}/users/${uid}/notifications/visits`).once('value');
-    totalUnread += countUnread(visitSnap.val());
+    // 1. Visits count
+    totalUnread += countUnread(userData.notifications?.visits);
 
-    const offerSnap = await db.ref(`${rootNode}/users/${uid}/myOffers`).once('value');
-    totalUnread += countUnread(offerSnap.val());
+    // 2. Offers count
+    totalUnread += countUnread(userData.myOffers);
 
-    for (const pid of Object.keys(properties)) {
-      const reviewSnap = await db.ref(`${rootNode}/users/${uid}/property/${pid}/reviews`).once('value');
-      totalUnread += countUnread(reviewSnap.val());
-    }
+    // 3. Properties Reviews count (Loop through local data, no extra DB calls)
+    const properties = userData.property || {};
+    Object.values(properties).forEach(prop => {
+      if (prop.reviews) {
+        totalUnread += countUnread(prop.reviews);
+      }
+    });
 
     res.status(200).json({ count: totalUnread });
   } catch (error) {
+    console.error("Unread count error:", error);
     res.status(500).json({ count: 0, error: error.message });
   }
 };

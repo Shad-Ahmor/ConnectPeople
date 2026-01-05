@@ -128,6 +128,7 @@ exports.fetchAllListings = async (req, res) => {
 };
 exports.fetchSingleListing = async (req, res) => {
     const { listingId } = req.params;
+
     
     // Input validation
     if (!listingId) {
@@ -136,10 +137,11 @@ exports.fetchSingleListing = async (req, res) => {
             message: "Bad Request: Listing ID is required in the URL." 
         });
     }
+    const appName = req.query.appName || req.headers['x-app-name'] || 'flatmate';
 
     try {
         // Service calls your exact traversal logic
-        const listing = await flatmateListingService.getSingleListing(listingId);
+        const listing = await flatmateListingService.getSingleListing(listingId,appName);
         
         if (!listing) {
             // 404: Listing not found
@@ -172,26 +174,30 @@ exports.fetchSingleListing = async (req, res) => {
  * Requires Auth Middleware
  */
 exports.fetchUserListings = async (req, res) => {
-    const userId = req.userId;
+    const userId = req.userId; // Middleware se mila
 
     if (!userId) {
         return res.status(401).json({ success: false, message: "User not authenticated." });
     }
 
     try {
-        console.log(`[Controller] Fetching dashboard listings for User: ${userId}`);
-        const listings = await flatmateListingService.getUserListings(userId); 
+        // Service se formatted data mangwayein
+        const { userListings, recentLeads } = await flatmateListingService.getUserListings(userId); 
         
         return res.status(200).json({
             success: true,
-            count: listings.length,
-            listings
+            // 🚀 Frontend compatibility:
+            // Client side function return { userListings, recentLeads } karta tha
+            // Isliye hum yahan keys ko match kar rahe hain
+            userListings: userListings, 
+            recentLeads: recentLeads,
+            count: userListings.length
         });
     } catch (error) {
-        console.error(`[Controller Error] Dashboard Fetch for ${userId}:`, error);
+        console.error(`[Controller Error] dashboard Fetch for ${userId}:`, error);
         return res.status(500).json({ 
             success: false,
-            message: "Failed to fetch your listings.", 
+            message: "Failed to fetch dashboard data.", 
             error: error.message 
         });
     }

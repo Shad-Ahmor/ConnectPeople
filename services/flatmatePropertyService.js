@@ -183,10 +183,11 @@ exports.getAllListingsForFrontend = async (filters) => {
 };
 // API 2: Fetch single listing with FULL details (Traverses users to find ID)
 // Logic preserved exactly from your React Native Client logic
-exports.getSingleListing = async (listingId) => {
-    try {
+exports.getSingleListing = async (listingId, appName = 'flatmate') => {
+        try {
+            const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
         // 1. Pure "users" node ka reference lein (Firebase Admin SDK)
-        const allUsersRef = db.ref('/flatmate/users');
+        const allUsersRef = db.ref(`${rootNode}/users`);
         const snapshot = await allUsersRef.once('value');
 
         if (!snapshot.exists()) {
@@ -253,19 +254,68 @@ exports.getSingleListing = async (listingId) => {
 };
 
 // API 3: Fetch all listings for a specific owner
+// flatmateListingService.js
+
 exports.getUserListings = async (userId) => {
-    const userPropertiesRef = db.ref(`/flatmate/users/${userId}/property`);
-    const snapshot = await userPropertiesRef.once('value');
-    const properties = snapshot.val() || {};
-    
-    const userListings = [];
-    for (const listingId in properties) {
-        const listingData = properties[listingId];
-        // Using static helper for consistent list-view structure
-        const listing = FlatmatePropertyModel.toLimitedFrontendData(listingData, listingId, userId);
-        userListings.push(listing);
+    try {
+        // 1. References setup
+        const userPropertiesRef = db.ref(`/flatmate/users/${userId}/property`);
+        const visitsRef = db.ref(`/flatmate/users/${userId}/notifications/visits`);
+        
+        // 2. Parallel fetch (Performance optimized)
+        const [propSnap, visitSnap] = await Promise.all([
+            userPropertiesRef.once('value'),
+            visitsRef.once('value')
+        ]);
+
+        const properties = propSnap.val() || {};
+        const visitsData = visitSnap.val() || {};
+        const allVisits = Object.values(visitsData);
+
+        // --- Part A: Format Listings Data (Match Frontend logic) ---
+        const userListings = Object.keys(properties).map(listingId => {
+            const listingData = properties[listingId];
+            
+            // Completion score calculate karein (aapki class method se)
+            const completionInfo = FlatmatePropertyModel.calculateCompletion(listingData);
+            
+            // Basic UI data structure
+            const listing = FlatmatePropertyModel.toLimitedFrontendData(listingData, listingId, userId);
+
+            // Filter visits for this specific listing
+            const thisListingVisits = allVisits.filter(v => v.listingId === listingId);
+            
+            return {
+                ...listing,
+                completionScore: completionInfo.percentage,
+                // Dashboard ke liye metrics
+                inquiryCount: thisListingVisits.filter(v => v.isInterestedLead === true).length,
+                views: thisListingVisits.length
+            };
+        });
+
+        // --- Part B: Extract Recent Leads (Match Frontend logic) ---
+        const recentLeads = allVisits
+            .map((v, index) => ({
+                id: v.timestamp ? v.timestamp.toString() : index.toString(),
+                name: v.visitorName || 'Guest User',
+                property: v.propertyTitle || 'Property',
+                status: v.isInterestedLead === true ? 'Interested' : 'Visited', 
+                phone: v.visitorPhone || 'No Contact', 
+                timestamp: v.timestamp,
+                visitorId: v.visitorId,
+                listingId: v.listingId
+            }))
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+            .slice(0, 50); // Top 50 recent leads
+
+        // Dono data sets return karein
+        return { userListings, recentLeads };
+
+    } catch (error) {
+        console.error("Service Error:", error);
+        throw error;
     }
-    return userListings;
 };
 
 /**
