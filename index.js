@@ -1,8 +1,13 @@
 const path = require('path');
+
+const isProduction = process.env.NODE_ENV === "production";
+
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const express = require('express');
 const app = express();
-app.set('trust proxy', 1);
+if (isProduction) {
+  app.set('trust proxy', true);
+}
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require("express-rate-limit");
@@ -45,7 +50,6 @@ app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-const isProduction = process.env.NODE_ENV === "production";
 
 app.use((req, res, next) => {
   res.setCookie = (name, value, options = {}) => {
@@ -64,7 +68,7 @@ app.use((req, res, next) => {
     } else {
         cookieConfig.secure = true;
         cookieConfig.sameSite = 'none';
-        cookieConfig.partitioned = true;
+        // cookieConfig.partitioned = true;
     }
     res.cookie(name, value, cookieConfig);
   };

@@ -141,7 +141,7 @@ exports.flatmateCompleteProfile = async (req, res) => {
     if (!uid) {
         try {
             // 2. Firebase Session Cookie वेरीफाई करने की कोशिश करें
-            const decodedClaims = await auth.verifySessionCookie(token, true);
+            const decodedClaims = await auth.verifySessionCookie(token, false);
             uid = decodedClaims.uid;
         } catch (err) {
             /* 💡 अगर verifySessionCookie फेल होता है (Custom/ID Token के केस में), 
@@ -278,7 +278,7 @@ exports.getCurrentUser = async (req, res) => {
   if (!sessionCookie) return res.status(401).json({ message: "Unauthorized. No session found." });
 
   try {
-    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie, false);
     const uid = decodedClaims.uid;
 
     // RTDB se user data fetch
@@ -394,13 +394,12 @@ exports.flatmateLogout = async (req, res) => {
         const sessionCookie = req.cookies?.session;
         if (sessionCookie) {
             const { auth } = getFirebaseInstance(req.body.appName || 'flatmate');
-            const decoded = await auth.verifySessionCookie(sessionCookie, true);
+            const decoded = await auth.verifySessionCookie(sessionCookie, false);
             await auth.revokeRefreshTokens(decoded.uid);
         }
   
 
-       res.clearCookie("session", {
-            httpOnly: true,
+       res.clearCookie(COOKIE_NAME, {
             secure: isProduction,
             sameSite: isProduction ? "none" : "lax",
             path: "/",
@@ -410,8 +409,7 @@ exports.flatmateLogout = async (req, res) => {
 
     } catch (error) {
         console.error("Logout error:", error);
-        res.clearCookie("session", {
-            httpOnly: true,
+        res.clearCookie(COOKIE_NAME, {
             secure: isProduction,
             sameSite: isProduction ? "none" : "lax",
             path: "/",
