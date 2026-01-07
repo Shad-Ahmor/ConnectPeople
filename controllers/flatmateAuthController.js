@@ -22,7 +22,7 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 // 🟢 flatmateSignup (CONTROLLER)
 // ----------------------------------------------------------
 exports.sendOtp = async (req, res) => {
-    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
+    const appName = req.body.appName || 'flatmate';
     const { email } = req.body;
 
     if (!email) {
@@ -33,7 +33,7 @@ exports.sendOtp = async (req, res) => {
         // 1. Check if user already exists using the RTDB function.
         // 💡 This function returns null if the user is not found, avoiding the 'auth/user-not-found' error.
         const sanitizedEmail=sanitizeString(email)
-        const existingUser = await getFlatmateUserByEmail(sanitizedEmail); 
+        const existingUser = await getFlatmateUserByEmail(sanitizedEmail,appName); 
 
         if (existingUser) {
              // User found in RTDB -> return 409 Conflict
@@ -41,7 +41,7 @@ exports.sendOtp = async (req, res) => {
         }
         
         // 2. Generate, Store, and Send OTP Email (Flow continues only if user is new)
-        const result = await sendOtpEmail(sanitizedEmail);
+        const result = await sendOtpEmail(sanitizedEmail,appName);
 
         if (result.success) {
             return res.status(200).json({ message: 'Verification code sent to email successfully.', sanitizedEmail });
@@ -58,7 +58,7 @@ exports.sendOtp = async (req, res) => {
 // 💡 ENDPOINT 2: Verify OTP (Step 2) - Unchanged, Already Correct
 // -----------------------------------------------------------------
 exports.verifyOtp = async (req, res) => {
-    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
+    const appName = req.body.appName || 'flatmate';
     const { email, otp } = req.body;
 
     if (!email || !otp) {
@@ -66,7 +66,7 @@ exports.verifyOtp = async (req, res) => {
     }
 
     try {
-        const validationResult = await validateOtp(email, otp);
+        const validationResult = await validateOtp(email, otp,appName);
 
         if (validationResult.success) {
             return res.status(200).json({ message: "OTP verified successfully. Proceed to final setup." });
@@ -80,7 +80,8 @@ exports.verifyOtp = async (req, res) => {
     }
 };
 exports.flatmateSignup = async (req, res) => {
-    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
+    const appName = req.body.appName || 'flatmate';
+    const {auth, db } = getFirebaseInstance(appName);
     const signupData = req.body;
 
     if (!signupData.isEmailVerified) {
@@ -393,7 +394,8 @@ exports.flatmateLogout = async (req, res) => {
     try {
         const sessionCookie = req.cookies?.session;
         if (sessionCookie) {
-            const { auth } = getFirebaseInstance(req.body.appName || 'flatmate');
+            const appName = req.body.appName || 'flatmate';
+            const { auth,db } = getFirebaseInstance(appName);
             const decoded = await auth.verifySessionCookie(sessionCookie, false);
             await auth.revokeRefreshTokens(decoded.uid);
         }
@@ -422,10 +424,10 @@ exports.flatmateLogout = async (req, res) => {
 // ----------------------------------------------------------
 // 🟢 Step 1: Send Reset OTP
 exports.flatmateForgotPassword = async (req, res) => {
-    const { auth, db } = getFirebaseInstance(req.body.appName || 'flatmate');
+   const appName = req.body.appName || 'flatmate';
     const resetData = req.body;
     try {
-        const success = await flatmateUserService.sendPasswordResetEmail(resetData);
+        const success = await flatmateUserService.sendPasswordResetEmail(resetData,appName);
         if (success) {
             res.status(200).json({ message: "Reset OTP sent successfully to your email!" });
         }
@@ -492,6 +494,7 @@ exports.flatmateVerifyAndResetPassword = async (req, res) => {
 // Function signature mein appName add karein
 const findOrCreateFlatmateUser = async (googleProfile, appName = 'flatmate') => {
     // req.body use nahi karna, direct appName use karna hai
+    
     const { auth, db } = getFirebaseInstance(appName); 
     const rootPath = appName === 'flatmate' ? 'flatmate' : appName;
     let firebaseUser;
