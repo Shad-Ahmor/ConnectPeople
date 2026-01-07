@@ -6,13 +6,15 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const express = require('express');
 const app = express();
 if (isProduction) {
-  app.set('trust proxy', true);
+  app.set('trust proxy', 1);
 }
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const port = process.env.PORT || 5000;
+
+
 const flatmateAuthRoutes = require("./routes/flatmateAuthRoutes.js");
 const propertyRoutes = require("./routes/flatmatePropertyRoutes.js");
 const imageRoutes = require("./routes/flatmateImageRoutes.js");
@@ -23,6 +25,7 @@ const chatRoutes = require("./routes/chatRoutes.js");
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
+  // validate: { trustProxy: false },
   message: "Too many requests from this IP, please try again after 15 minutes",
   standardHeaders: true, 
   legacyHeaders: false,
@@ -64,6 +67,11 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
   res.setCookie = (name, value, options = {}) => {
+    
+    const userAgent = req.headers['user-agent'] || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+
     // 💡 PRO TIP: Server par agar cookie nahi mil rahi, toh domain attribute check karna padta hai
     const cookieConfig = {
       httpOnly: true,
@@ -73,17 +81,15 @@ app.use((req, res, next) => {
     };
 
 
-    const userAgent = req.headers['user-agent'] || '';
-    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
 
-    if (req.hostname === 'localhost' || req.hostname === '127.0.0.1') {
+    if (!isProduction) {
         cookieConfig.secure = false;
         cookieConfig.sameSite = 'lax'; 
     } else {
         cookieConfig.secure = true;
-        // Safari/iOS ke liye fix: 
-        cookieConfig.sameSite = (isIOS || isSafari) ? 'Lax' : 'None';
+        // SameSite=None + Partitioned = iPhone Fix
+        cookieConfig.sameSite = 'None';
+        cookieConfig.partitioned = true;
     }
 
 

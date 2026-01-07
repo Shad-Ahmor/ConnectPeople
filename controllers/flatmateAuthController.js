@@ -399,36 +399,49 @@ exports.updateFlatmateProfile = async (req, res,next) => {
 // 🟢 flatmateLogout (CONTROLLER)
 // ----------------------------------------------------------
 exports.flatmateLogout = async (req, res, next) => {
-    try {
-        const sessionCookie = req.cookies?.session;
-        if (sessionCookie) {
-            const appName = req.body.appName || 'flatmate';
-            const { auth,db } = getFirebaseInstance(appName);
-            const decoded = await auth.verifySessionCookie(sessionCookie, false);
-            await auth.revokeRefreshTokens(decoded.uid);
-        }
-  
+    // 1. Dynamic Name generate karein jo Login se match kare
+    const appName = req.body.appName || 'flatmate';
+    const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
 
-       res.clearCookie(COOKIE_NAME, {
+    try {
+        const sessionCookie = req.cookies?.[dynamicCookieName]; 
+        
+        if (sessionCookie) {
+            const { auth } = getFirebaseInstance(appName);
+            try {
+                const decoded = await auth.verifySessionCookie(sessionCookie, false);
+                await auth.revokeRefreshTokens(decoded.uid);
+            } catch (tokenErr) {
+                // Agar token pehle hi expire ho chuka hai, toh chill maaro, bas aage badho
+                console.log("Token already invalid, proceeding to clear cookie.");
+            }
+        }
+
+        // 2. Cookie clear karein (Vahi settings use karein jo Server.js mein set karte waqt ki thi)
+        res.clearCookie(dynamicCookieName, {
             secure: isProduction,
-            sameSite: isProduction ? "none" : "lax",
+            sameSite: isProduction ? "None" : "Lax",
             path: "/",
+            // Safari fix: Partitioned flag ko bhi clear karte waqt mention karna pad sakta hai
+            partitioned: isProduction ? true : false 
         });
 
         return res.status(200).json({ message: "Logged out successfully." });
 
     } catch (error) {
-        console.error("Logout error:", error);
-        res.clearCookie(COOKIE_NAME, {
+        console.error("❌ Logout error:", error);
+
+        // Error aane par bhi browser se cookie saaf karna zaroori hai
+        res.clearCookie(dynamicCookieName, {
             secure: isProduction,
-            sameSite: isProduction ? "none" : "lax",
+            sameSite: isProduction ? "None" : "Lax",
             path: "/",
         });
-        next(error);
-        return res.status(500).json({ message: "Server error during logout.", error: error.message });
+
+        // Global Error Handler ko bhej dein (Double response crash se bachne ke liye)
+        return next(error); 
     }
 };
-
 
 // ----------------------------------------------------------
 // 🟢 Step 1: Send Reset OTP
