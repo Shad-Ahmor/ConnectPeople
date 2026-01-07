@@ -307,9 +307,8 @@ exports.handleFlatmateLogin = async (email, locationData) => {
 // ----------------------------------------------------
 // 🟢 SERVICE FUNCTION 4: Send Forgot Password Email
 // ----------------------------------------------------
-exports.sendPasswordResetEmail = async (resetData) => {
+exports.sendPasswordResetEmail = async (resetData,appName='flatmate') => {
     // 🚀 NEW: Dynamic Instance Fetching
-    const appName = resetData.appName || 'flatmate';
     const { db } = getFirebaseInstance(appName);
     const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
 
