@@ -21,7 +21,7 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
 // ----------------------------------------------------------
 // 🟢 flatmateSignup (CONTROLLER)
 // ----------------------------------------------------------
-exports.sendOtp = async (req, res) => {
+exports.sendOtp = async (req, res,send) => {
     const appName = req.body.appName || 'flatmate';
     const { email } = req.body;
 
@@ -50,6 +50,7 @@ exports.sendOtp = async (req, res) => {
         }
     } catch (error) {
         console.error("❌ Error in sendOtp:", error);
+        next(error);
         res.status(500).json({ message: 'Server error while sending OTP.', error: error.message });
     }
 };
@@ -57,7 +58,7 @@ exports.sendOtp = async (req, res) => {
 // -----------------------------------------------------------------
 // 💡 ENDPOINT 2: Verify OTP (Step 2) - Unchanged, Already Correct
 // -----------------------------------------------------------------
-exports.verifyOtp = async (req, res) => {
+exports.verifyOtp = async (req, res,next) => {
     const appName = req.body.appName || 'flatmate';
     const { email, otp } = req.body;
 
@@ -76,10 +77,11 @@ exports.verifyOtp = async (req, res) => {
         }
     } catch (error) {
         console.error("❌ Error in verifyOtp:", error);
+        next(error);
         res.status(500).json({ message: 'Server error during OTP verification.', error: error.message });
     }
 };
-exports.flatmateSignup = async (req, res) => {
+exports.flatmateSignup = async (req, res,next) => {
     const appName = req.body.appName || 'flatmate';
     const {auth, db } = getFirebaseInstance(appName);
     const signupData = req.body;
@@ -117,13 +119,14 @@ exports.flatmateSignup = async (req, res) => {
 
     } catch (error) {
         console.error("Signup Error:", error);
+        next(error);
         res.status(500).json({ message: 'Error creating user', error: error.message });
     }
 };
 // ----------------------------------------------------------
 // 🟢 flatmateCompleteProfile (CONTROLLER)
 // ----------------------------------------------------------
-exports.flatmateCompleteProfile = async (req, res) => {
+exports.flatmateCompleteProfile = async (req, res,next) => {
     const appName = req.body.appName || 'flatmate';
     const { auth } = getFirebaseInstance(appName);
     
@@ -192,6 +195,7 @@ exports.flatmateCompleteProfile = async (req, res) => {
         });
     } catch (error) {
         console.error("Error completing profile:", error);
+        next(error);
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 };
@@ -201,7 +205,7 @@ exports.flatmateCompleteProfile = async (req, res) => {
 
 const COOKIE_NAME = 'session';
 const SESSION_EXPIRES = 60 * 60 * 24 * 7 * 1000; // 7 days
-exports.flatmateLogin = async (req, res) => {
+exports.flatmateLogin = async (req, res, next) => {
    const appName = req.body.appName || 'flatmate'; 
     const { auth, db } = getFirebaseInstance(appName);
     const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
@@ -237,9 +241,9 @@ exports.flatmateLogin = async (req, res) => {
 
     // Set HttpOnly cookie
     const dynamicCookieName = appName === 'flatmate' ? 'flatmate_session' : `${appName}_session`;
-res.setCookie(dynamicCookieName, sessionCookie, { 
-    maxAge: SESSION_EXPIRES // Ensure maxAge is passed
-});
+    res.setCookie(dynamicCookieName, sessionCookie, { 
+        maxAge: SESSION_EXPIRES // Ensure maxAge is passed
+    });
 
     // Save last login location in RTDB
     await db.ref(`${rootNode}/users/${uid}/lastLogin`).set({
@@ -258,15 +262,16 @@ res.setCookie(dynamicCookieName, sessionCookie, {
     });
 
   } catch (error) {
-    console.error('Login error:', error.response?.data || error.message || error);
+
     if (error.response?.data?.error?.message === 'EMAIL_NOT_FOUND' ||
         error.response?.data?.error?.message === 'INVALID_PASSWORD') {
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
+    next(error);
     res.status(500).json({ message: 'Server error.' });
   }
 };
-exports.getCurrentUser = async (req, res) => {
+exports.getCurrentUser = async (req, res,next) => {
   const appName = req.query.appName || 'flatmate';
   const { auth, db } = getFirebaseInstance(appName);
   
@@ -298,11 +303,12 @@ exports.getCurrentUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching current user:", error);
+    next(error);
     res.status(401).json({ message: "Invalid or expired session." });
   }
 };
 
-exports.getFlatmateProfile = async (req, res) => {
+exports.getFlatmateProfile = async (req, res,next) => {
     const { uid } = req.params;
     const appName = req.query.appName || 'flatmate';
     const { db } = getFirebaseInstance(appName);
@@ -352,6 +358,7 @@ exports.getFlatmateProfile = async (req, res) => {
 
     } catch (error) {
         console.error("Error fetching profile:", error);
+        next(error);
         res.status(500).json({ message: "Internal server error" });
     }
 };
@@ -359,7 +366,7 @@ exports.getFlatmateProfile = async (req, res) => {
 // ----------------------------------------------------------
 // 🟢 updateFlatmateProfile (NEW) - Optimized update
 // ----------------------------------------------------------
-exports.updateFlatmateProfile = async (req, res) => {
+exports.updateFlatmateProfile = async (req, res,next) => {
     // Middleware adds user to req (from session)
     const uid = req.user.uid; 
     const appName = req.body.appName || 'flatmate';
@@ -384,13 +391,14 @@ exports.updateFlatmateProfile = async (req, res) => {
         res.status(200).json({ success: true, message: "Profile updated successfully" });
     } catch (error) {
         console.error("Profile Update Error:", error);
+        next(error);
         res.status(500).json({ message: "Update failed", error: error.message });
     }
 };
 
 // 🟢 flatmateLogout (CONTROLLER)
 // ----------------------------------------------------------
-exports.flatmateLogout = async (req, res) => {
+exports.flatmateLogout = async (req, res, next) => {
     try {
         const sessionCookie = req.cookies?.session;
         if (sessionCookie) {
@@ -416,6 +424,7 @@ exports.flatmateLogout = async (req, res) => {
             sameSite: isProduction ? "none" : "lax",
             path: "/",
         });
+        next(error);
         return res.status(500).json({ message: "Server error during logout.", error: error.message });
     }
 };
@@ -423,7 +432,7 @@ exports.flatmateLogout = async (req, res) => {
 
 // ----------------------------------------------------------
 // 🟢 Step 1: Send Reset OTP
-exports.flatmateForgotPassword = async (req, res) => {
+exports.flatmateForgotPassword = async (req, res,next) => {
    const appName = req.body.appName || 'flatmate';
     const resetData = req.body;
     try {
@@ -436,12 +445,13 @@ exports.flatmateForgotPassword = async (req, res) => {
         if (error.message.includes("is required") || error.message.includes("Invalid email")) {
             return res.status(400).json({ message: error.message });
         }
+        next(error);
         res.status(500).json({ message: "Something went wrong.", error: error.message });
     }
 };
 
 // 🟢 Step 2: NEW CONTROLLER - Verify OTP & Change Password
-exports.flatmateVerifyAndResetPassword = async (req, res) => {
+exports.flatmateVerifyAndResetPassword = async (req, res, next) => {
     const appName = req.body.appName || 'flatmate';
     const { auth, db } = getFirebaseInstance(appName);
     const rootNode = appName === 'flatmate' ? 'flatmate' : appName;
@@ -486,6 +496,7 @@ exports.flatmateVerifyAndResetPassword = async (req, res) => {
         if (error.code === 'auth/user-not-found') {
             return res.status(404).json({ message: "User not found." });
         }
+        next(error);
         res.status(500).json({ message: "Failed to reset password.", error: error.message });
     }
 };
@@ -533,7 +544,7 @@ const findOrCreateFlatmateUser = async (googleProfile, appName = 'flatmate') => 
 // 🟢 googleSSOCallback (CONTROLLER)
 // Route: GET /auth/google/callback
 // ----------------------------------------------------------
-exports.googleSSOCallback = async (req, res) => {
+exports.googleSSOCallback = async (req, res,next) => {
     const appName = req.query.state || 'flatmate';
     const { auth, db } = getFirebaseInstance(appName);
     const { code } = req.query;
@@ -619,7 +630,7 @@ exports.googleSSOCallback = async (req, res) => {
 
     } catch (error) {
         console.error('Google SSO Callback Error:', error.message || error);
-        
+        next(error);
         // Send failure message and close the window
         res.status(500).send(`
             <!DOCTYPE html>

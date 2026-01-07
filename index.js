@@ -50,6 +50,17 @@ app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    // iPhone debug info bhi add kar di hai
+    const ua = req.headers['user-agent'] || '';
+    const device = /iPhone|iPad|iPod/i.test(ua) ? '🍎 iOS' : '💻 Other';
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms | ${device}`);
+  });
+  next();
+});
 
 app.use((req, res, next) => {
   res.setCookie = (name, value, options = {}) => {
@@ -61,15 +72,21 @@ app.use((req, res, next) => {
       ...options
     };
 
-    // Local development ke liye secure check relax kar sakte hain agar HTTPS nahi hai
+
+    const userAgent = req.headers['user-agent'] || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+
     if (req.hostname === 'localhost' || req.hostname === '127.0.0.1') {
         cookieConfig.secure = false;
         cookieConfig.sameSite = 'lax'; 
     } else {
         cookieConfig.secure = true;
-        cookieConfig.sameSite = 'none';
-        // cookieConfig.partitioned = true;
+        // Safari/iOS ke liye fix: 
+        cookieConfig.sameSite = (isIOS || isSafari) ? 'Lax' : 'None';
     }
+
+
     res.cookie(name, value, cookieConfig);
   };
   next();
@@ -81,6 +98,23 @@ app.use("/images", imageRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/negotiate", negotiateRoutes);
 app.use("/chat", chatRoutes);
+
+
+
+
+app.use((err, req, res, next) => {
+  console.error("❌ SERVER ERROR DETECTED:");
+  console.error("Path:", req.path);
+  console.error("Message:", err.message);
+  console.error("Stack:", err.stack); // Ye line batayegi ki code kis file mein kis line par fata hai
+
+  // Agar Render par production mein hai toh client ko stack trace mat dikhao
+  res.status(err.status || 500).json({
+    message: err.message || "Internal Server Error",
+    error: process.env.NODE_ENV === "production" ? "🔥 Server Fata Hai, Logs Check Karo" : err.stack,
+    path: req.path
+  });
+});
 
 app.get("/health", (req, res) => {
   if (req.headers["x-health-key"] !== process.env.HEALTH_KEY) {
