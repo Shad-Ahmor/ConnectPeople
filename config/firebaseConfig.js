@@ -53,41 +53,41 @@ const getDecryptedConfig = (envPrefix) => {
 // =================================================================
 // 🚀 Multi-App Instance Getter
 // =================================================================
+// firebaseConfig.js mein getFirebaseInstance function ko update karein:
+
 const getFirebaseInstance = (appName = 'flatmate') => {
     const name = appName.toLowerCase();
-
-    // 1. Return existing instance if available
     if (apps[name]) return apps[name];
 
     try {
-        // Dating app ke liye prefix DATING_ rakhein, Flatmate ke liye empty/FLATMATE_
         const prefix = name.toUpperCase(); 
-        
         const config = getDecryptedConfig(prefix);
-        
-        if (!config.project_id) {
-            throw new Error(`Project ID missing for app: ${name}. Check ${prefix}_PROJECT_ID in .env`);
-        }
-
         const envDbKey = `${prefix}_DATABASE_URL`;
         const dbURL = process.env[envDbKey] || process.env.FIREBASE_DATABASE_URL;
 
-        if (!dbURL) {
-            throw new Error(`Can't determine Database URL. ${envDbKey} is not set in .env`);
+        // --- FIXED LOGIC START ---
+        let app;
+        // Agar koi app initialized nahi hai, toh pehli app ko Default banao (bina naam ke)
+        if (admin.apps.length === 0) {
+            app = admin.initializeApp({
+                credential: admin.credential.cert(config),
+                databaseURL: dbURL,
+            }); // No name passed = [DEFAULT]
+        } else {
+            // Agar default app pehle se hai, toh dating/dusri apps ko naam ke saath initialize karo
+            app = admin.initializeApp({
+                credential: admin.credential.cert(config),
+                databaseURL: dbURL,
+            }, name); 
         }
-
- 
-        const app = admin.initializeApp({
-            credential: admin.credential.cert(config),
-            databaseURL: dbURL,
-        }, name); 
+        // --- FIXED LOGIC END ---
 
         apps[name] = {
             db: app.database(),
             auth: app.auth(),
             admin: admin
         };
-        console.log(`🔥 Firebase Admin [${name}] initialized successfully.`);
+        console.log(`🔥 Firebase Admin [${name}] initialized successfully as ${admin.apps.length === 1 ? 'DEFAULT' : name}.`);
         return apps[name];
     } catch (err) {
         console.error(`❌ Firebase Initialization Failed for [${name}]:`, err.message);

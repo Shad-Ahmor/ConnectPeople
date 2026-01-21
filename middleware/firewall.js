@@ -1,5 +1,4 @@
-const admin = require("firebase-admin");
-
+const { db } = require("./firebaseConfig");
 /**
  * Enhanced Firewall for Brevo Protection
  * Email Limit: 3/day | IP Limit: 8/day
@@ -42,7 +41,6 @@ const firewall = async (req, res, next) => {
             db.ref(`rate_limit/ip/${ipKey}`).get(),
             db.ref(`rate_limit/email/${emailKey}`).get(),
         ]);
-
         // Rule 1: Monthly Global Kill-Switch
         const totalUsed = uSnap.val() || 0;
         if (totalUsed >= MONTHLY_LIMIT) {
