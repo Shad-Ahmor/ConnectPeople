@@ -1,7 +1,8 @@
 const { db } = require("../config/firebaseConfig");
+
 /**
  * Enhanced Firewall for Brevo Protection
- * Email Limit: 3/day | IP Limit: 8/day
+ * Email Limit: 4/day | IP Limit: 8/day
  * Purpose: Anti-DDOS, Anti-Brute Force, Quota Saving
  */
 
@@ -22,8 +23,8 @@ const firewall = async (req, res, next) => {
     const ipKey = clientIp.replace(/\./g, "_").replace(/:/g, "_");
     const monthKey = new Date().toISOString().slice(0, 7).replace("-", "_");
 
-    // Whitelist Bypass
-    if (WHITELIST.includes(clientIp) || WHITELIST.includes(email)) {
+    // 2. Whitelist Bypass
+    if (WHITELIST.includes(clientIp) || (email && WHITELIST.includes(email))) {
         return next();
     }
 
@@ -32,15 +33,18 @@ const firewall = async (req, res, next) => {
     }
 
     const emailKey = Buffer.from(email).toString("base64").replace(/=/g, "");
-    const db = admin.database();
+    
+    // ⚠️ FIXED: Hata diya 'const db = admin.database()' kyunki 'db' upar se aa raha hai
     const now = Date.now();
 
     try {
+        // 3. Fetch current stats from Firebase using the imported 'db'
         const [uSnap, iSnap, emSnap] = await Promise.all([
             db.ref(`usage_stats/${monthKey}`).get(),
             db.ref(`rate_limit/ip/${ipKey}`).get(),
             db.ref(`rate_limit/email/${emailKey}`).get(),
         ]);
+
         // Rule 1: Monthly Global Kill-Switch
         const totalUsed = uSnap.val() || 0;
         if (totalUsed >= MONTHLY_LIMIT) {
@@ -56,21 +60,21 @@ const firewall = async (req, res, next) => {
         if (now - ipData.last > WINDOW) ipData.count = 0;
         if (now - emData.last > WINDOW) emData.count = 0;
 
-        // Rule 2: Email Strict Limit (Max 3)
+        // Rule 2: Email Strict Limit
         if (emData.count >= EMAIL_LIMIT) {
             return res.status(429).json({
-                message: "Too many requests for this email. Limit 3/day."
+                message: `Too many requests for this email. Limit ${EMAIL_LIMIT}/day.`
             });
         }
 
-        // Rule 3: IP Strict Limit (Max 8)
+        // Rule 3: IP Strict Limit
         if (ipData.count >= IP_LIMIT) {
             return res.status(429).json({
                 message: "Device limit reached. Try again after 24 hours."
             });
         }
 
-        // Success: Update Firebase with transaction-like logic
+        // 4. Success: Update Firebase with transaction-like logic
         await Promise.all([
             db.ref(`usage_stats/${monthKey}`).set(totalUsed + 1),
             db.ref(`rate_limit/ip/${ipKey}`).set({
@@ -86,6 +90,7 @@ const firewall = async (req, res, next) => {
         next();
     } catch (err) {
         console.error("Firewall Critical Error:", err);
+        // Fallback: Security verification failed but server shouldn't crash
         return res.status(500).send("Security verification failed");
     }
 };
