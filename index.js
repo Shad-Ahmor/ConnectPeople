@@ -32,16 +32,38 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
+const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN, // Browser (Web)
+  'http://localhost:3000',      // Local Web Development
+  'http://localhost:8081',      // React Native Metro Bundler
+  undefined,                    // Mobile Apps (Aksar origin undefined bhejti hain)
+];
+
 // 🟢 FIX: CORS setup with explicit allowed headers
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN,
+  origin: function (origin, callback) {
+    // Mobile apps (Origin undefined) ya allowed list mein hone par allow karein
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log("🚫 CORS Blocked for Origin:", origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie', 'x-app-name'], // 'x-app-name' add karein
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Cookie', 
+    'x-app-name', // Aapka custom header
+    'x-platform'  // Future use ke liye (Android/iOS identify karne ko)
+  ],
   exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 200
 }));
-
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false, 

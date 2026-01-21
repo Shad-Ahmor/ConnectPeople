@@ -3,16 +3,17 @@ const { getFirebaseInstance } = require('../config/firebaseConfig.js');
 const getRootNode = (appName) => {
     return appName === 'flatmate' ? 'flatmate' : appName;
 };
-
 exports.sendMessage = async (req, res) => {
     const senderId = req.user?.uid || req.userId;
     let { receiverId, propertyId, message, propertyLocation, clientMsgId } = req.body;
+
     if (!message || message.trim().length === 0) {
         return res.status(400).json({ message: "Message khali nahi ho sakta." });
     }
     if (message.length > 500) {
         return res.status(400).json({ message: "Message bohot lamba hai (Max 500 chars)." });
     }
+    
     message = message.replace(/[<>]/g, ""); // <script> jaisi tags ko disable karne ke liye
     const appName = req.appName || req.body.appName || req.headers['x-app-name'] || 'flatmate';
     const { db } = getFirebaseInstance(appName);
@@ -22,12 +23,13 @@ exports.sendMessage = async (req, res) => {
         return res.status(400).json({ message: "Missing required fields" });
     }
 
-   if (senderId.trim() === receiverId.trim()) {
+    if (senderId.trim() === receiverId.trim()) {
         return res.status(400).json({ 
             success: false, 
             message: "Self-chat blocked. Check if receiverId is correct." 
         });
     }
+
     try {
         const chatId = [senderId, receiverId].sort().join('_') + `_${propertyId}`;
         const limitSnap = await db.ref(`${rootNode}/chats/${chatId}/limits/${senderId}`).once('value');
@@ -41,16 +43,29 @@ exports.sendMessage = async (req, res) => {
             });
         }
 
+        // 🚀 NEW LOGIC: Pehle message mein property detail add karna
+        let finalMessageText = message;
+        if (currentCount === 0) {
+            const propertyContext = `🏠 Property Inquiry: ${propertyLocation || 'Details Not Specified'}\n(ID: ${propertyId})\n\n`;
+            finalMessageText = propertyContext + message;
+        }
+
         const timestamp = Date.now();
         const currentBucketId = 1; 
 
-        // --- BUCKET MODEL STRUCTURE (As per your Schema) ---
-        // Hum bucket 1 ke andar "messages" array/node mein push kar rahe hain
+        // --- BUCKET MODEL STRUCTURE ---
         const messageRef = db.ref(`${rootNode}/messages/${chatId}/bucket_${currentBucketId}/messages`).push();
         
-        const messageData = { senderId, text: message, timestamp ,status: 'sent', clientMsgId: clientMsgId || messageRef.key, repliedTo: req.body.repliedTo || null,
+        const messageData = { 
+            senderId, 
+            text: finalMessageText, // Modified text use ho raha hai
+            timestamp,
+            status: 'sent', 
+            clientMsgId: clientMsgId || messageRef.key, 
+            repliedTo: req.body.repliedTo || null,
             repliedText: req.body.repliedText || null,
-            repliedToSender: req.body.repliedToSender || null};
+            repliedToSender: req.body.repliedToSender || null
+        };
 
         // --- CHAT METADATA MODEL ---
         const chatSummary = {
@@ -58,27 +73,26 @@ exports.sendMessage = async (req, res) => {
             participants: [senderId, receiverId],
             propertyId: propertyId,
             lastMessage: {
-                text: message,
+                text: finalMessageText, // Metadata mein bhi detail wala message dikhega
                 senderId: senderId,
                 timestamp: timestamp
             },
             propertyLocation: propertyLocation || "Inquiry"
         };
 
-        // --- MULTI-PATH UPDATE (Model Implementation) ---
+        // --- MULTI-PATH UPDATE ---
         const updates = {};
         
-       // A. Bucket Updates
+        // A. Bucket Updates
         updates[`${rootNode}/messages/${chatId}/bucket_${currentBucketId}/messages/${messageRef.key}`] = messageData;
         updates[`${rootNode}/messages/${chatId}/bucket_${currentBucketId}/bucketId`] = currentBucketId;
-        
         updates[`${rootNode}/messages/${chatId}/bucket_${currentBucketId}/chatId`] = chatId;
 
-        // B. Metadata Update (Crucial for Chat List)
+        // B. Metadata Update
         updates[`${rootNode}/chats/${chatId}/metadata`] = chatSummary;
         updates[`${rootNode}/chats/${chatId}/lastSeen/${senderId}`] = timestamp;
 
-        // C. Limits Update (For 5 message rule)
+        // C. Limits Update
         updates[`${rootNode}/chats/${chatId}/limits/${senderId}`] = currentCount + 1;
 
         // D. User-Chat Mapping
@@ -86,8 +100,16 @@ exports.sendMessage = async (req, res) => {
         updates[`${rootNode}/users/${receiverId}/myChats/${chatId}`] = true;
 
         await db.ref().update(updates);
+        
         const remaining = 5 - (currentCount + 1);
-        res.status(200).json({ success: true, chatId, messageData,remainingMessages: remaining ,tempId: clientMsgId});
+        res.status(200).json({ 
+            success: true, 
+            chatId, 
+            messageData, 
+            remainingMessages: remaining, 
+            tempId: clientMsgId 
+        });
+
     } catch (error) {
         console.error("Error:", error);
         res.status(500).json({ message: "Internal server error" });

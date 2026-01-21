@@ -11,7 +11,7 @@ const sendEmail = async ({ to, subject, html , otp }) => {
       to: [{ email: to }],
       subject: subject,
       htmlContent: html,
-      textContent: `Your FindYourFlatMates verification code is: ${otp}. This code is valid for 10 minutes.`
+      textContent: `Your FYF verification code is: ${otp}. This code is valid for 10 minutes.`
     };
 
     const config = {
