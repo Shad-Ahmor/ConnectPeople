@@ -1,4 +1,4 @@
-const { db } = require("./firebaseConfig");
+const { db } = require("../config/firebaseConfig");
 /**
  * Enhanced Firewall for Brevo Protection
  * Email Limit: 3/day | IP Limit: 8/day
